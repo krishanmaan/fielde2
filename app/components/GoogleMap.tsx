@@ -1,14 +1,14 @@
 import { FC } from 'react';
-import PolygonDrawingTool from './PolygonDrawingTool';
+import { PolygonDrawingTool } from './PolygonDrawingTool';
 
 interface GoogleMapProps {
   onAreaUpdate: (area: number) => void;
 }
 
-const GoogleMap: FC<GoogleMapProps> = ({ onAreaUpdate }) => {
+export const GoogleMap: FC<GoogleMapProps> = ({ onAreaUpdate }) => {
   return (
     <div className="w-full h-full">
-      <PolygonDrawingTool />
+      <PolygonDrawingTool onAreaUpdate={onAreaUpdate} />
     </div>
   );
 };

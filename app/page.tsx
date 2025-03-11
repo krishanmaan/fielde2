@@ -5,10 +5,13 @@ import { useState } from 'react';
 import dynamic from 'next/dynamic';
 import GoogleMap from './components/GoogleMap';
 
-// Dynamically import PolygonDrawingTool with SSR disabled
-const PolygonDrawingTool = dynamic(() => import('./components/PolygonDrawingTool'), {
-  ssr: false,
-});
+// Update dynamic import to use named export
+const PolygonDrawingTool = dynamic(
+  () => import('./components/PolygonDrawingTool').then(mod => ({ default: mod.PolygonDrawingTool })),
+  {
+    ssr: false,
+  }
+);
 
 const Home: NextPage = () => {
   const [area, setArea] = useState<number>(0);

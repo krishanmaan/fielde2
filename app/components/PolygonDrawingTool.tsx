@@ -42,7 +42,11 @@ interface PolygonPoint {
   lng: number;
 }
 
-export const PolygonDrawingTool: React.FC = () => {
+interface PolygonDrawingToolProps {
+  onAreaUpdate?: (area: number) => void;
+}
+
+export const PolygonDrawingTool: React.FC<PolygonDrawingToolProps> = ({ onAreaUpdate }) => {
   const [map, setMap] = useState<google.maps.Map | null>(null);
   const [isDrawing, setIsDrawing] = useState(false);
   const [points, setPoints] = useState<PolygonPoint[]>([]);
@@ -85,8 +89,11 @@ export const PolygonDrawingTool: React.FC = () => {
     if (newPoints.length >= 3) {
       const newArea = calculateArea(newPoints);
       setArea(newArea);
+      if (onAreaUpdate) {
+        onAreaUpdate(newArea);
+      }
     }
-  }, [isDrawing, points]);
+  }, [isDrawing, points, onAreaUpdate]);
 
   // Toggle drawing mode
   const toggleDrawing = () => {
@@ -129,6 +136,9 @@ export const PolygonDrawingTool: React.FC = () => {
         if (newPoints.length >= 3) {
           const newArea = calculateArea(newPoints);
           setArea(newArea);
+          if (onAreaUpdate) {
+            onAreaUpdate(newArea);
+          }
         }
       }),
       google.maps.event.addListener(path, 'insert_at', () => {
@@ -138,6 +148,9 @@ export const PolygonDrawingTool: React.FC = () => {
         if (newPoints.length >= 3) {
           const newArea = calculateArea(newPoints);
           setArea(newArea);
+          if (onAreaUpdate) {
+            onAreaUpdate(newArea);
+          }
         }
       }),
       google.maps.event.addListener(path, 'remove_at', () => {
@@ -147,10 +160,13 @@ export const PolygonDrawingTool: React.FC = () => {
         if (newPoints.length >= 3) {
           const newArea = calculateArea(newPoints);
           setArea(newArea);
+          if (onAreaUpdate) {
+            onAreaUpdate(newArea);
+          }
         }
       })
     ];
-  }, []);
+  }, [onAreaUpdate]);
 
   // Get points from path
   const getPathPoints = (path: google.maps.MVCArray<google.maps.LatLng>): PolygonPoint[] => {
@@ -327,7 +343,7 @@ export const PolygonDrawingTool: React.FC = () => {
         </LoadScript>
 
         {/* Map Controls - Moved to left side */}
-        <div className="absolute left-3 top-16 flex flex-col gap-2">
+        <div className="absolute right-3  top-6 flex flex-col gap-2">
           <button 
             onClick={toggleMapType}
             className="bg-black bg-opacity-60 w-12 h-12 rounded-lg flex items-center justify-center hover:bg-opacity-80 transition-colors"
@@ -395,7 +411,7 @@ export const PolygonDrawingTool: React.FC = () => {
         </div>
 
         {/* Zoom Controls - Bottom left */}
-        <div className="absolute bottom-8 left-3 bg-black bg-opacity-60 rounded-lg">
+        <div className="absolute bottom-8 right-3 bg-black bg-opacity-60 rounded-lg">
           <button 
             onClick={handleZoomIn}
             className="w-12 h-12 text-white border-b border-gray-700 flex items-center justify-center hover:bg-opacity-80 transition-colors"
@@ -412,13 +428,11 @@ export const PolygonDrawingTool: React.FC = () => {
 
         {/* Area Display */}
         {area > 0 && (
-          <div className="absolute top-3 left-3 z-50 bg-black bg-opacity-70 text-white p-3 rounded-lg shadow-lg">
+          <div className="absolute top-3 right-3 z-50 bg-black bg-opacity-70 text-white p-3 rounded-lg shadow-lg">
             <div className="text-sm font-medium">Area: {area.toFixed(2)} hectares</div>
           </div>
         )}
       </div>
     </div>
   );
-};
-
-export default PolygonDrawingTool; 
+}; 
