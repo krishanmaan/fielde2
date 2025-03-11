@@ -5,7 +5,7 @@ interface GoogleMapProps {
   onAreaUpdate: (area: number) => void;
 }
 
-export const GoogleMap: FC<GoogleMapProps> = ({ onAreaUpdate }) => {
+const GoogleMap: FC<GoogleMapProps> = ({ onAreaUpdate }) => {
   return (
     <div className="w-full h-full">
       <PolygonDrawingTool onAreaUpdate={onAreaUpdate} />
