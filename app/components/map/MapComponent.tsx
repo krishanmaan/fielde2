@@ -13,6 +13,8 @@ interface PolygonPoint {
   lng: number;
 }
 
+type MapType = 'hybrid' | 'satellite' | 'roadmap' | 'terrain';
+
 const libraries: ("drawing" | "geometry" | "places")[] = ["drawing", "geometry", "places"];
 
 const mapStyles = {
@@ -44,7 +46,7 @@ const MapComponent = ({ onAreaUpdate }: MapComponentProps) => {
   const [points, setPoints] = useState<PolygonPoint[]>([]);
   const [area, setArea] = useState<number>(0);
   const [showCreateMenu, setShowCreateMenu] = useState(false);
-  const [mapType, setMapType] = useState<'hybrid' | 'satellite'>('hybrid');
+  const [mapType, setMapType] = useState<MapType>('hybrid');
   const [isFullscreen, setIsFullscreen] = useState(false);
   const polygonRef = useRef<google.maps.Polygon | null>(null);
   const listenersRef = useRef<google.maps.MapsEventListener[]>([]);
@@ -88,7 +90,20 @@ const MapComponent = ({ onAreaUpdate }: MapComponentProps) => {
 
   // Map controls handlers
   const handleToggleMapType = useCallback(() => {
-    setMapType(prev => prev === 'hybrid' ? 'satellite' : 'hybrid');
+    setMapType(prev => {
+      switch (prev) {
+        case 'hybrid':
+          return 'satellite';
+        case 'satellite':
+          return 'roadmap';
+        case 'roadmap':
+          return 'terrain';
+        case 'terrain':
+          return 'hybrid';
+        default:
+          return 'hybrid';
+      }
+    });
   }, []);
 
   const handleLocationClick = useCallback(() => {
@@ -219,7 +234,8 @@ const MapComponent = ({ onAreaUpdate }: MapComponentProps) => {
         </LoadScript>
 
         <MapControls
-          onToggleMapType={handleToggleMapType}
+          currentMapType={mapType}
+          onMapTypeChange={setMapType}
           onLocationClick={handleLocationClick}
           onToggleFullscreen={handleToggleFullscreen}
         />
