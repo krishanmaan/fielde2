@@ -17,7 +17,7 @@ interface CreateMenuProps {
 
 const CreateMenu = ({ showMenu, onToggleMenu, onOptionSelect }: CreateMenuProps) => {
   return (
-    <div className="absolute bottom-8 left-1/2 transform -translate-x-1/2">
+    <div className="absolute bottom-16 left-1/2 transform -translate-x-1/2">
       <div className="relative">
         {showMenu && (
           <div className="absolute bottom-full left-0 mb-3 bg-black bg-opacity-75 rounded-lg overflow-hidden w-48">

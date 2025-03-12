@@ -1,7 +1,7 @@
 'use client';
 
 import { NextPage } from 'next';
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
 import dynamic from 'next/dynamic';
 
 // Dynamically import MapComponent with no SSR
@@ -20,9 +20,9 @@ const MapComponent = dynamic(
 const Home: NextPage = () => {
   const [area, setArea] = useState<number>(0);
 
-  const handleAreaUpdate = (newArea: number) => {
+  const handleAreaUpdate = useCallback((newArea: number) => {
     setArea(newArea);
-  };
+  }, []);
 
   return (
     <main className="min-h-screen" suppressHydrationWarning>

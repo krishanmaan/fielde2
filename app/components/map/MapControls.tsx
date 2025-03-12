@@ -23,7 +23,7 @@ const MapControls = ({
   onToggleFullscreen 
 }: MapControlsProps) => {
   return (
-    <div className="absolute right-3 top-6 flex flex-col gap-2">
+    <div className="absolute right-3 top-16 flex flex-col gap-2">
       <MapTypeMenu 
         currentType={currentMapType}
         onTypeChange={onMapTypeChange}
