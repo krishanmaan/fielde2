@@ -40,7 +40,7 @@ const SearchBox = ({ onPlaceSelect }: SearchBoxProps) => {
   };
 
   return (
-    <div className="flex-1 flex items-center px-4">
+    <div className="flex-1 flex items-center ">
       <div className="w-full flex items-center bg-white rounded-lg h-10">
         <button className="p-2 hover:bg-gray-800 rounded-l-lg">
           <FontAwesomeIcon icon={faBars} className="h-5 w-5 text-black" />
