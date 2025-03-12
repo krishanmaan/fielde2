@@ -31,7 +31,7 @@ const MapTypeMenu = ({ currentType, onTypeChange }: MapTypeMenuProps) => {
     <div className="relative">
       <button 
         onClick={() => setShowMenu(!showMenu)}
-        className="bg-black bg-opacity-60 w-12 h-12 rounded-lg flex items-center justify-center hover:bg-opacity-80 transition-colors"
+        className="bg-black bg-opacity-60 w-12 h-12 rounded-lg flex items-center justify-center hover:bg-opacity-80 transition-colors "
       >
         <FontAwesomeIcon 
           icon={faLayerGroup} 
@@ -40,7 +40,7 @@ const MapTypeMenu = ({ currentType, onTypeChange }: MapTypeMenuProps) => {
       </button>
 
       {showMenu && (
-        <div className="absolute top-full left-0 mt-2 bg-black bg-opacity-75 rounded-lg overflow-hidden w-40">
+        <div className="absolute right-14 top-[-8] mt-2 bg-black bg-opacity-75 rounded-lg overflow-hidden w-40">
           {mapTypes.map(({ type, label, icon }) => (
             <button
               key={type}

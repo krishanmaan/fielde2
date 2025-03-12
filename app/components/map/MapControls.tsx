@@ -14,13 +14,15 @@ interface MapControlsProps {
   onMapTypeChange: (type: MapType) => void;
   onLocationClick: () => void;
   onToggleFullscreen: () => void;
+  isLocating: boolean;
 }
 
 const MapControls = ({ 
   currentMapType,
   onMapTypeChange,
   onLocationClick, 
-  onToggleFullscreen 
+  onToggleFullscreen,
+  isLocating
 }: MapControlsProps) => {
   return (
     <div className="absolute right-3 top-16 flex flex-col gap-2">
@@ -30,9 +32,15 @@ const MapControls = ({
       />
       <button 
         onClick={onLocationClick}
-        className="bg-[#FF4C4C] w-12 h-12 rounded-lg flex items-center justify-center hover:bg-[#FF3C3C] transition-colors"
+        disabled={isLocating}
+        className={`${
+          isLocating ? 'bg-gray-500' : 'bg-[#FF4C4C] hover:bg-[#FF3C3C]'
+        } w-12 h-12 rounded-lg flex items-center justify-center transition-colors`}
       >
-        <FontAwesomeIcon icon={faLocationCrosshairs} className="h-5 w-5 text-white" />
+        <FontAwesomeIcon 
+          icon={faLocationCrosshairs} 
+          className={`h-5 w-5 text-white ${isLocating ? 'animate-pulse' : ''}`} 
+        />
       </button>
       <button 
         onClick={onToggleFullscreen}

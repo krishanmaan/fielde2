@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
-import { GoogleMap, LoadScript, Polygon, Polyline, Marker } from '@react-google-maps/api';
+import { GoogleMap, LoadScript, Polygon, Polyline, Marker, Circle } from '@react-google-maps/api';
 import Navbar from './Navbar';
 import MapControls from './MapControls';
 import CreateMenu from './CreateMenu';
@@ -64,6 +64,8 @@ const MapComponent = ({ onAreaUpdate }: MapComponentProps) => {
   const [isDraggingMarker, setIsDraggingMarker] = useState(false);
   const [tempPoints, setTempPoints] = useState<PolygonPoint[]>([]);
   const [isMovingPoint, setIsMovingPoint] = useState(false);
+  const [userLocation, setUserLocation] = useState<PolygonPoint | null>(null);
+  const [isLocating, setIsLocating] = useState(false);
 
   // Add ref to track if we're dragging
   const isDraggingRef = useRef(false);
@@ -166,20 +168,35 @@ const MapComponent = ({ onAreaUpdate }: MapComponentProps) => {
   }, []);
 
   const handleLocationClick = useCallback(() => {
-    if (navigator.geolocation && map) {
+    setIsLocating(true);
+    if (navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
         (position) => {
-          const pos = {
+          const newLocation = {
             lat: position.coords.latitude,
-            lng: position.coords.longitude,
+            lng: position.coords.longitude
           };
-          map.setCenter(pos);
-          map.setZoom(18);
+          setUserLocation(newLocation);
+          if (map) {
+            map.panTo(newLocation);
+            map.setZoom(18);
+          }
+          setIsLocating(false);
         },
-        () => {
-          alert('Error: The Geolocation service failed.');
+        (error) => {
+          console.error('Error getting location:', error);
+          setIsLocating(false);
+          alert('Unable to get your location. Please check your location permissions.');
+        },
+        {
+          enableHighAccuracy: true,
+          timeout: 5000,
+          maximumAge: 0
         }
       );
+    } else {
+      alert('Geolocation is not supported by your browser');
+      setIsLocating(false);
     }
   }, [map]);
 
@@ -448,6 +465,37 @@ const MapComponent = ({ onAreaUpdate }: MapComponentProps) => {
                 }}
               />
             )}
+
+            {/* User location marker */}
+            {userLocation && (
+              <Marker
+                position={userLocation}
+                icon={{
+                  path: google.maps.SymbolPath.CIRCLE,
+                  scale: 12,
+                  fillColor: '#4285F4',
+                  fillOpacity: 1,
+                  strokeColor: '#FFFFFF',
+                  strokeWeight: 2,
+                }}
+                zIndex={1000}
+              />
+            )}
+
+            {/* Location accuracy circle */}
+            {userLocation && (
+              <Circle
+                center={userLocation}
+                radius={20}
+                options={{
+                  fillColor: '#4285F4',
+                  fillOpacity: 0.2,
+                  strokeColor: '#4285F4',
+                  strokeOpacity: 0.5,
+                  strokeWeight: 1,
+                }}
+              />
+            )}
           </GoogleMap>
         </div>
 
@@ -456,6 +504,7 @@ const MapComponent = ({ onAreaUpdate }: MapComponentProps) => {
           onMapTypeChange={setMapType}
           onLocationClick={handleLocationClick}
           onToggleFullscreen={handleToggleFullscreen}
+          isLocating={isLocating}
         />
 
         <CreateMenu
