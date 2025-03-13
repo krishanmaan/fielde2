@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
+import React, { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { GoogleMap, LoadScript, Polygon, Polyline, Marker, Circle } from '@react-google-maps/api';
 import Navbar from './Navbar';
 import MapControls from './MapControls';
@@ -45,12 +45,67 @@ interface MapComponentProps {
 // Define marker path as a string constant
 const MARKER_PATH = "M 0,0 C -2,-20 -10,-22 -10,-30 A 10,10 0 1,1 10,-30 C 10,-22 2,-20 0,0 z";
 
+interface Field {
+  id: string;
+  points: PolygonPoint[];
+  area: number;
+  perimeter: number;
+  measurements: { length: number; width: number; }[];
+}
+
+// Add new component for measurement labels
+const MeasurementLabel = ({ position, text }: { position: PolygonPoint; text: string }) => {
+  return (
+    <Marker
+      position={position}
+      icon={{
+        path: google.maps.SymbolPath.CIRCLE,
+        scale: 0,
+        fillOpacity: 0,
+        strokeOpacity: 0,
+      }}
+      label={{
+        text: text,
+        color: '#000000',
+        fontSize: '14px',
+        fontWeight: 'bold',
+        className: 'measurement-label',
+      }}
+      zIndex={1000}
+    />
+  );
+};
+
+// Add new component for corner labels
+const CornerLabel = ({ position, text }: { position: PolygonPoint; text: string }) => {
+  return (
+    <Marker
+      position={position}
+      icon={{
+        path: google.maps.SymbolPath.CIRCLE,
+        scale: 0,
+        fillOpacity: 0,
+        strokeOpacity: 0,
+      }}
+      label={{
+        text: text,
+        color: '#000000',
+        fontSize: '16px',
+        fontWeight: 'bold',
+        className: 'corner-label',
+      }}
+      zIndex={1001}
+    />
+  );
+};
+
 const MapComponent = ({ onAreaUpdate }: MapComponentProps) => {
   // All hooks need to be at the top level
   const [isClient, setIsClient] = useState(false);
   const [map, setMap] = useState<google.maps.Map | null>(null);
   const [isDrawing, setIsDrawing] = useState(false);
-  const [points, setPoints] = useState<PolygonPoint[]>([]);
+  const [fields, setFields] = useState<Field[]>([]);
+  const [currentField, setCurrentField] = useState<Field | null>(null);
   const [area, setArea] = useState<number>(0);
   const [showCreateMenu, setShowCreateMenu] = useState(false);
   const [mapType, setMapType] = useState<MapType>('hybrid');
@@ -60,6 +115,7 @@ const MapComponent = ({ onAreaUpdate }: MapComponentProps) => {
   const [perimeter, setPerimeter] = useState<number>(0);
   const [measurements, setMeasurements] = useState<{ length: number; width: number; }[]>([]);
   const [selectedPoint, setSelectedPoint] = useState<number | null>(null);
+  const [selectedFieldId, setSelectedFieldId] = useState<string | null>(null);
   const [hoveredPoint, setHoveredPoint] = useState<number | null>(null);
   const [isDraggingMarker, setIsDraggingMarker] = useState(false);
   const [tempPoints, setTempPoints] = useState<PolygonPoint[]>([]);
@@ -102,10 +158,10 @@ const MapComponent = ({ onAreaUpdate }: MapComponentProps) => {
   }, []);
 
   // Add perimeter calculation
-  const calculatePerimeter = useCallback((polygonPoints: PolygonPoint[]) => {
-    if (polygonPoints.length < 2) return 0;
+  const calculatePerimeter = useCallback((polygonPoints: PolygonPoint[]): { totalDistance: number; lineMeasurements: { length: number; width: number; }[] } => {
+    if (polygonPoints.length < 2) return { totalDistance: 0, lineMeasurements: [] };
     let totalDistance = 0;
-    const measurements: { length: number; width: number; }[] = [];
+    const lineMeasurements: { length: number; width: number; }[] = [];
 
     for (let i = 0; i < polygonPoints.length; i++) {
       const point1 = polygonPoints[i];
@@ -117,11 +173,10 @@ const MapComponent = ({ onAreaUpdate }: MapComponentProps) => {
       );
       
       totalDistance += distance;
-      measurements.push({ length: distance, width: 0 });
+      lineMeasurements.push({ length: distance, width: 0 });
     }
 
-    setMeasurements(measurements);
-    return totalDistance;
+    return { totalDistance, lineMeasurements };
   }, []);
 
   // Map click handler
@@ -133,21 +188,53 @@ const MapComponent = ({ onAreaUpdate }: MapComponentProps) => {
       lng: e.latLng.lng()
     };
 
-    setPoints(prevPoints => [...prevPoints, newPoint]);
-  }, [isDrawing]);
+    if (!currentField) {
+      // Create new field if none exists
+      const newField: Field = {
+        id: Date.now().toString(),
+        points: [newPoint],
+        area: 0,
+        perimeter: 0,
+        measurements: []
+      };
+      setCurrentField(newField);
+    } else {
+      // Add point to current field
+      setCurrentField(prev => {
+        if (!prev) return null;
+        return {
+          ...prev,
+          points: [...prev.points, newPoint]
+        };
+      });
+    }
+  }, [isDrawing, currentField]);
 
   // Use useEffect to handle area and perimeter updates
   useEffect(() => {
-    if (points.length >= 3) {
-      const newArea = calculateArea(points);
-      const newPerimeter = calculatePerimeter(points);
+    if (currentField && currentField.points.length >= 3) {
+      const newArea = calculateArea(currentField.points);
+      const { totalDistance, lineMeasurements } = calculatePerimeter(currentField.points);
+      
       setArea(newArea);
-      setPerimeter(newPerimeter);
+      setPerimeter(totalDistance);
+      setMeasurements(lineMeasurements);
+      
+      setCurrentField(prev => {
+        if (!prev) return null;
+        return {
+          ...prev,
+          area: newArea,
+          perimeter: totalDistance,
+          measurements: lineMeasurements
+        };
+      });
+
       if (onAreaUpdate) {
         onAreaUpdate(newArea);
       }
     }
-  }, [points, calculateArea, calculatePerimeter, onAreaUpdate]);
+  }, [currentField?.points, calculateArea, calculatePerimeter, onAreaUpdate]);
 
   // Map controls handlers
   const handleToggleMapType = useCallback(() => {
@@ -226,11 +313,27 @@ const MapComponent = ({ onAreaUpdate }: MapComponentProps) => {
   const handleCreateOption = useCallback((option: 'import' | 'field' | 'distance' | 'marker') => {
     setShowCreateMenu(false);
     if (option === 'field') {
-      setPoints([]);
-      setArea(0);
+      // If there's a current field, add it to fields array
+      if (currentField) {
+        const { totalDistance, lineMeasurements } = calculatePerimeter(currentField.points);
+        const finalField = {
+          ...currentField,
+          perimeter: totalDistance,
+          measurements: lineMeasurements
+        };
+        setFields(prev => [...prev, finalField]);
+      }
+      // Create new empty field
+      setCurrentField({
+        id: Date.now().toString(),
+        points: [],
+        area: 0,
+        perimeter: 0,
+        measurements: []
+      });
       setIsDrawing(true);
     }
-  }, []);
+  }, [currentField, calculatePerimeter]);
 
   // Update map options
   const mapOptions = useMemo(() => ({
@@ -253,12 +356,16 @@ const MapComponent = ({ onAreaUpdate }: MapComponentProps) => {
   }), [mapType, isDrawing, isMovingMarker]);
 
   // Update marker handlers
-  const handleMarkerClick = useCallback((index: number) => {
+  const handleMarkerClick = useCallback((index: number, fieldId: string | null) => {
     setSelectedPoint(index);
+    setSelectedFieldId(fieldId);
     setIsMovingMarker(true);
     setIsMovingPoint(true);
     // Store temporary points for preview
-    setTempPoints([...points]);
+    const fieldToEdit = fieldId ? fields.find(f => f.id === fieldId) : currentField;
+    if (fieldToEdit) {
+      setTempPoints([...fieldToEdit.points]);
+    }
     if (map) {
       map.setOptions({ 
         draggable: false,
@@ -266,7 +373,7 @@ const MapComponent = ({ onAreaUpdate }: MapComponentProps) => {
         gestureHandling: 'none'
       });
     }
-  }, [map, points]);
+  }, [map, fields, currentField]);
 
   // Add marker hover handlers
   const handleMarkerMouseEnter = (index: number) => {
@@ -278,11 +385,14 @@ const MapComponent = ({ onAreaUpdate }: MapComponentProps) => {
   };
 
   // Add marker movement handlers
-  const handleMarkerDragStart = useCallback((e: google.maps.MapMouseEvent) => {
+  const handleMarkerDragStart = useCallback((e: google.maps.MapMouseEvent, fieldId: string | null) => {
     e.domEvent.stopPropagation();
     setIsMovingMarker(true);
     setIsMovingPoint(true);
-    setTempPoints([...points]);
+    const fieldToEdit = fieldId ? fields.find(f => f.id === fieldId) : currentField;
+    if (fieldToEdit) {
+      setTempPoints([...fieldToEdit.points]);
+    }
     if (map) {
       map.setOptions({ 
         draggable: false,
@@ -290,12 +400,45 @@ const MapComponent = ({ onAreaUpdate }: MapComponentProps) => {
         gestureHandling: 'none'
       });
     }
-  }, [map, points]);
+  }, [map, fields, currentField]);
 
-  const handleMarkerDragEnd = useCallback(() => {
+  const handleMarkerDragEnd = useCallback((fieldId: string | null) => {
     setIsMovingMarker(false);
     setIsMovingPoint(false);
-    setPoints(tempPoints);
+    if (fieldId) {
+      // Update completed field
+      setFields(prevFields => 
+        prevFields.map(field => {
+          if (field.id === fieldId) {
+            const newArea = calculateArea(tempPoints);
+            const { totalDistance, lineMeasurements } = calculatePerimeter(tempPoints);
+            return {
+              ...field,
+              points: [...tempPoints],
+              area: newArea,
+              perimeter: totalDistance,
+              measurements: lineMeasurements
+            };
+          }
+          return field;
+        })
+      );
+    } else {
+      // Update current field
+      setCurrentField(prev => {
+        if (!prev) return null;
+        const newArea = calculateArea(tempPoints);
+        const { totalDistance, lineMeasurements } = calculatePerimeter(tempPoints);
+        return {
+          ...prev,
+          points: [...tempPoints],
+          area: newArea,
+          perimeter: totalDistance,
+          measurements: lineMeasurements
+        };
+      });
+    }
+    setTempPoints([]);
     if (map) {
       map.setOptions({ 
         draggable: true,
@@ -303,7 +446,7 @@ const MapComponent = ({ onAreaUpdate }: MapComponentProps) => {
         gestureHandling: 'cooperative'
       });
     }
-  }, [map, tempPoints]);
+  }, [map, tempPoints, calculateArea, calculatePerimeter]);
 
   const handleMarkerDrag = useCallback((index: number, newPosition: google.maps.LatLng) => {
     if (!isMovingMarker) return;
@@ -325,6 +468,22 @@ const MapComponent = ({ onAreaUpdate }: MapComponentProps) => {
       map.setZoom(18);
     }
   }, [map]);
+
+  // Add function to calculate midpoint between two points
+  const calculateMidpoint = useCallback((point1: PolygonPoint, point2: PolygonPoint): PolygonPoint => {
+    return {
+      lat: (point1.lat + point2.lat) / 2,
+      lng: (point1.lng + point2.lng) / 2,
+    };
+  }, []);
+
+  // Add function to format length in meters to a readable format
+  const formatLength = useCallback((meters: number): string => {
+    if (meters >= 1000) {
+      return `${(meters / 1000).toFixed(2)} km`;
+    }
+    return `${meters.toFixed(1)} m`;
+  }, []);
 
   // Client-side effect
   useEffect(() => {
@@ -356,108 +515,275 @@ const MapComponent = ({ onAreaUpdate }: MapComponentProps) => {
             onClick={handleMapClick}
             options={mapOptions}
           >
-            {/* Only show the main polygon when not moving */}
-            {points.length >= 3 && !isMovingPoint && (
-              <Polygon
-                paths={points}
-                options={{
-                  fillColor: '#00ff00',
-                  fillOpacity: 0.3,
-                  strokeColor: '#00ff00',
-                  strokeWeight: 2,
-                  editable: !isDrawing,
-                  draggable: !isDrawing,
-                }}
-              />
-            )}
-
-            {/* Show temporary polygon while moving */}
-            {tempPoints.length >= 3 && isMovingPoint && (
-              <Polygon
-                paths={tempPoints}
-                options={{
-                  fillColor: '#00ff00',
-                  fillOpacity: 0.3,
-                  strokeColor: '#00ff00',
-                  strokeWeight: 2,
-                  editable: false,
-                  draggable: false,
-                }}
-              />
-            )}
-
-            {/* Use temp points for markers when moving */}
-            {(isMovingPoint ? tempPoints : points).map((point, index) => (
-              <Marker
-                key={index}
-                position={point}
-                draggable={!isDrawing}
-                icon={{
-                  path: google.maps.SymbolPath.CIRCLE,
-                  scale: 8,
-                  fillColor: selectedPoint === index ? '#FF0000' : 
-                            hoveredPoint === index ? '#FFFFFF' : '#00FF00',
-                  fillOpacity: 1,
-                  strokeWeight: 2,
-                  strokeColor: '#000000',
-                }}
-                onClick={(e) => {
-                  e.domEvent.stopPropagation();
-                  handleMarkerClick(index);
-                }}
-                onMouseOver={(e) => {
-                  e.domEvent.stopPropagation();
-                  handleMarkerMouseEnter(index);
-                }}
-                onMouseOut={handleMarkerMouseLeave}
-                onDragStart={handleMarkerDragStart}
-                onDragEnd={handleMarkerDragEnd}
-                onDrag={(e) => {
-                  e.domEvent.stopPropagation();
-                  if (e.latLng) {
-                    handleMarkerDrag(index, e.latLng);
-                  }
-                }}
-                options={{
-                  clickable: true,
-                  draggable: !isDrawing
-                }}
-                cursor="move"
-              />
+            {/* Render all completed fields with measurements */}
+            {fields.map((field) => (
+              <React.Fragment key={field.id}>
+                {!isMovingPoint || selectedFieldId !== field.id ? (
+                  // Show original polygon when not moving or when another field is being edited
+                  <Polygon
+                    paths={field.points}
+                    options={{
+                      fillColor: '#00ff00',
+                      fillOpacity: 0.3,
+                      strokeColor: '#00ff00',
+                      strokeWeight: 2,
+                      editable: !isDrawing,
+                      draggable: !isDrawing,
+                    }}
+                  />
+                ) : (
+                  // Show temporary polygon while moving
+                  <Polygon
+                    paths={tempPoints}
+                    options={{
+                      fillColor: '#00ff00',
+                      fillOpacity: 0.3,
+                      strokeColor: '#00ff00',
+                      strokeWeight: 2,
+                      editable: false,
+                      draggable: false,
+                    }}
+                  />
+                )}
+                {/* Add measurement labels for each line */}
+                {(isMovingPoint && selectedFieldId === field.id ? tempPoints : field.points).map((point, index) => {
+                  const points = isMovingPoint && selectedFieldId === field.id ? tempPoints : field.points;
+                  const nextPoint = points[(index + 1) % points.length];
+                  const midpoint = calculateMidpoint(point, nextPoint);
+                  const length = field.measurements[index]?.length || 0;
+                  return (
+                    <MeasurementLabel
+                      key={`measurement-${field.id}-${index}`}
+                      position={midpoint}
+                      text={formatLength(length)}
+                    />
+                  );
+                })}
+              </React.Fragment>
             ))}
 
-            {/* Red marker using temp points when moving */}
-            {selectedPoint !== null && (isMovingPoint ? tempPoints : points)[selectedPoint] && (
-              <Marker
-                position={(isMovingPoint ? tempPoints : points)[selectedPoint]}
-                draggable={true}
-                icon={{
-                  path: MARKER_PATH,
-                  fillColor: '#FF0000',
-                  fillOpacity: 1,
-                  strokeWeight: 1,
-                  strokeColor: '#000000',
-                  scale: 1.5,
-                  anchor: new google.maps.Point(0, 0),
-                }}
-                onDragStart={handleMarkerDragStart}
-                onDragEnd={handleMarkerDragEnd}
-                onDrag={(e) => {
-                  if (e.latLng) {
-                    handleMarkerDrag(selectedPoint, e.latLng);
-                  }
-                }}
-                zIndex={1000}
-                options={{
-                  clickable: true
-                }}
-              />
+            {/* Render current field with measurements */}
+            {currentField && currentField.points.length >= 3 && (
+              <React.Fragment>
+                {!isMovingPoint || selectedFieldId !== null ? (
+                  // Show original polygon when not moving or when a completed field is being edited
+                  <Polygon
+                    paths={currentField.points}
+                    options={{
+                      fillColor: '#00ff00',
+                      fillOpacity: 0.3,
+                      strokeColor: '#00ff00',
+                      strokeWeight: 2,
+                      editable: !isDrawing,
+                      draggable: !isDrawing,
+                    }}
+                  />
+                ) : (
+                  // Show temporary polygon while moving
+                  <Polygon
+                    paths={tempPoints}
+                    options={{
+                      fillColor: '#00ff00',
+                      fillOpacity: 0.3,
+                      strokeColor: '#00ff00',
+                      strokeWeight: 2,
+                      editable: false,
+                      draggable: false,
+                    }}
+                  />
+                )}
+                {/* Add measurement labels for each line */}
+                {(isMovingPoint && selectedFieldId === null ? tempPoints : currentField.points).map((point, index) => {
+                  const points = isMovingPoint && selectedFieldId === null ? tempPoints : currentField.points;
+                  const nextPoint = points[(index + 1) % points.length];
+                  const midpoint = calculateMidpoint(point, nextPoint);
+                  const length = currentField.measurements[index]?.length || 0;
+                  return (
+                    <MeasurementLabel
+                      key={`measurement-current-${index}`}
+                      position={midpoint}
+                      text={formatLength(length)}
+                    />
+                  );
+                })}
+              </React.Fragment>
             )}
 
-            {/* Line for 2 points */}
-            {points.length === 2 && (
+            {/* Render markers and labels for all fields */}
+            {fields.map((field) => (
+              field.points.map((point, index) => (
+                <React.Fragment key={`${field.id}-${index}`}>
+                  <Marker
+                    position={isMovingPoint && selectedFieldId === field.id ? tempPoints[index] : point}
+                    draggable={!isDrawing}
+                    icon={{
+                      path: google.maps.SymbolPath.CIRCLE,
+                      scale: 8,
+                      fillColor: (selectedPoint === index && selectedFieldId === field.id) ? '#FF0000' : 
+                                hoveredPoint === index ? '#FFFFFF' : '#00ff00',
+                      fillOpacity: 1,
+                      strokeWeight: 2,
+                      strokeColor: '#000000',
+                    }}
+                    onClick={(e) => {
+                      e.domEvent.stopPropagation();
+                      handleMarkerClick(index, field.id);
+                    }}
+                    onMouseOver={(e) => {
+                      e.domEvent.stopPropagation();
+                      handleMarkerMouseEnter(index);
+                    }}
+                    onMouseOut={handleMarkerMouseLeave}
+                    onDragStart={(e) => handleMarkerDragStart(e, field.id)}
+                    onDragEnd={() => handleMarkerDragEnd(field.id)}
+                    onDrag={(e) => {
+                      e.domEvent.stopPropagation();
+                      if (e.latLng) {
+                        handleMarkerDrag(index, e.latLng);
+                      }
+                    }}
+                    options={{
+                      clickable: true,
+                      draggable: !isDrawing
+                    }}
+                    cursor="move"
+                  />
+                  <CornerLabel
+                    position={isMovingPoint && selectedFieldId === field.id ? tempPoints[index] : point}
+                    text={String.fromCharCode(65 + index)}
+                  />
+                </React.Fragment>
+              ))
+            ))}
+
+            {/* Render markers and labels for current field */}
+            {currentField && currentField.points.map((point, index) => (
+              <React.Fragment key={`current-${index}`}>
+                <Marker
+                  position={isMovingPoint && selectedFieldId === null ? tempPoints[index] : point}
+                  draggable={!isDrawing}
+                  icon={{
+                    path: google.maps.SymbolPath.CIRCLE,
+                    scale: 8,
+                    fillColor: (selectedPoint === index && selectedFieldId === null) ? '#FF0000' : 
+                              hoveredPoint === index ? '#FFFFFF' : '#00ff00',
+                    fillOpacity: 1,
+                    strokeWeight: 2,
+                    strokeColor: '#000000',
+                  }}
+                  onClick={(e) => {
+                    e.domEvent.stopPropagation();
+                    handleMarkerClick(index, null);
+                  }}
+                  onMouseOver={(e) => {
+                    e.domEvent.stopPropagation();
+                    handleMarkerMouseEnter(index);
+                  }}
+                  onMouseOut={handleMarkerMouseLeave}
+                  onDragStart={(e) => handleMarkerDragStart(e, null)}
+                  onDragEnd={() => handleMarkerDragEnd(null)}
+                  onDrag={(e) => {
+                    e.domEvent.stopPropagation();
+                    if (e.latLng) {
+                      handleMarkerDrag(index, e.latLng);
+                    }
+                  }}
+                  options={{
+                    clickable: true,
+                    draggable: !isDrawing
+                  }}
+                  cursor="move"
+                />
+                <CornerLabel
+                  position={isMovingPoint && selectedFieldId === null ? tempPoints[index] : point}
+                  text={String.fromCharCode(65 + index)}
+                />
+              </React.Fragment>
+            ))}
+
+            {/* Red marker for selected point */}
+            {selectedPoint !== null && (
+              <>
+                {/* Red marker for completed fields */}
+                {fields.map((field) => (
+                  selectedFieldId === field.id && (
+                    <Marker
+                      key={`red-${field.id}-${selectedPoint}`}
+                      position={isMovingPoint ? tempPoints[selectedPoint] : field.points[selectedPoint]}
+                      draggable={true}
+                      icon={{
+                        path: MARKER_PATH,
+                        fillColor: '#FF0000',
+                        fillOpacity: 1,
+                        strokeWeight: 1,
+                        strokeColor: '#000000',
+                        scale: 1.5,
+                        anchor: new google.maps.Point(0, 0),
+                      }}
+                      onDragStart={(e) => {
+                        e.domEvent.stopPropagation();
+                        handleMarkerDragStart(e, field.id);
+                      }}
+                      onDragEnd={() => {
+                        handleMarkerDragEnd(field.id);
+                        setSelectedPoint(null);
+                      }}
+                      onDrag={(e) => {
+                        e.domEvent.stopPropagation();
+                        if (e.latLng) {
+                          handleMarkerDrag(selectedPoint, e.latLng);
+                        }
+                      }}
+                      zIndex={1000}
+                      options={{
+                        clickable: true
+                      }}
+                    />
+                  )
+                ))}
+
+                {/* Red marker for current field */}
+                {currentField && selectedFieldId === null && (
+                  <Marker
+                    key={`red-current-${selectedPoint}`}
+                    position={isMovingPoint ? tempPoints[selectedPoint] : currentField.points[selectedPoint]}
+                    draggable={true}
+                    icon={{
+                      path: MARKER_PATH,
+                      fillColor: '#FF0000',
+                      fillOpacity: 1,
+                      strokeWeight: 1,
+                      strokeColor: '#000000',
+                      scale: 1.5,
+                      anchor: new google.maps.Point(0, 0),
+                    }}
+                    onDragStart={(e) => {
+                      e.domEvent.stopPropagation();
+                      handleMarkerDragStart(e, null);
+                    }}
+                    onDragEnd={() => {
+                      handleMarkerDragEnd(null);
+                      setSelectedPoint(null);
+                    }}
+                    onDrag={(e) => {
+                      e.domEvent.stopPropagation();
+                      if (e.latLng) {
+                        handleMarkerDrag(selectedPoint, e.latLng);
+                      }
+                    }}
+                    zIndex={1000}
+                    options={{
+                      clickable: true
+                    }}
+                  />
+                )}
+              </>
+            )}
+
+            {/* Line for 2 points in current field */}
+            {currentField && currentField.points.length === 2 && (
               <Polyline
-                path={points}
+                path={currentField.points}
                 options={{
                   strokeColor: '#00ff00',
                   strokeWeight: 2,
@@ -529,5 +855,23 @@ const MapComponent = ({ onAreaUpdate }: MapComponentProps) => {
     </LoadScript>
   );
 };
+
+// Update styles to include corner labels
+const styles = document.createElement('style');
+styles.textContent = `
+  .measurement-label {
+    background-color: rgba(255, 255, 255, 0.8);
+    padding: 2px 4px;
+    border-radius: 4px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+  }
+  .corner-label {
+    background-color: rgba(255, 255, 255, 0.9);
+    padding: 0px 6px;
+    border-radius: 50%;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+  }
+`;
+document.head.appendChild(styles);
 
 export default MapComponent; 
