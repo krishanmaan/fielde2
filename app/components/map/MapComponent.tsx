@@ -53,8 +53,78 @@ interface Field {
   measurements: { length: number; width: number; }[];
 }
 
-// Add new component for measurement labels
-const MeasurementLabel = ({ position, text }: { position: PolygonPoint; text: string }) => {
+// Update styles to include corner labels and clickable measurement labels
+const styles = document.createElement('style');
+styles.textContent = `
+  .measurement-label {
+    background-color: rgba(255, 255, 255, 0.8);
+    padding: 2px 4px;
+    border-radius: 4px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+    cursor: pointer;
+    transition: background-color 0.2s;
+  }
+  .measurement-label:hover {
+    background-color: rgba(255, 255, 255, 0.95);
+  }
+  .corner-label {
+    background-color: rgba(255, 255, 255, 0.9);
+    padding: 0px 6px;
+    border-radius: 50%;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+  }
+  .measurement-input-container {
+    background-color: white;
+    padding: 2px;
+    border-radius: 4px;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+  }
+  .measurement-input {
+    outline: none;
+    text-align: center;
+  }
+  .measurement-input:focus {
+    border-color: #4285F4;
+  }
+`;
+document.head.appendChild(styles);
+
+// Update MeasurementLabel component
+const MeasurementLabel = ({ 
+  position, 
+  text, 
+  isEditing, 
+  onEditStart, 
+  onLengthChange,
+  onCancel
+}: { 
+  position: PolygonPoint; 
+  text: string;
+  isEditing: boolean;
+  onEditStart: () => void;
+  onLengthChange: (newLength: number) => void;
+  onCancel: () => void;
+}) => {
+  const [inputValue, setInputValue] = useState(text.replace(' m', '').replace(' km', ''));
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      const newLength = parseFloat(inputValue);
+      if (!isNaN(newLength)) {
+        onLengthChange(newLength);
+      }
+    } else if (e.key === 'Escape') {
+      onCancel();
+    }
+  };
+
+  const handleClick = (e: google.maps.MapMouseEvent) => {
+    e.domEvent.stopPropagation();
+    if (!isEditing) {
+      onEditStart();
+    }
+  };
+
   return (
     <Marker
       position={position}
@@ -65,14 +135,40 @@ const MeasurementLabel = ({ position, text }: { position: PolygonPoint; text: st
         strokeOpacity: 0,
       }}
       label={{
-        text: text,
+        text: isEditing ? '' : text,
         color: '#000000',
         fontSize: '14px',
         fontWeight: 'bold',
         className: 'measurement-label',
       }}
-      zIndex={1000}
-    />
+      onClick={handleClick}
+      options={{
+        clickable: true
+      }}
+    >
+      {isEditing && (
+        <div className="measurement-input-container">
+          <input
+            type="text"
+            value={inputValue}
+            onChange={(e) => setInputValue(e.target.value)}
+            onKeyDown={handleKeyDown}
+            className="measurement-input"
+            autoFocus
+            style={{
+              width: '60px',
+              padding: '2px 4px',
+              border: '1px solid #000',
+              borderRadius: '4px',
+              backgroundColor: 'white',
+              fontSize: '14px',
+              fontWeight: 'bold',
+            }}
+          />
+          <span style={{ marginLeft: '2px' }}>m</span>
+        </div>
+      )}
+    </Marker>
   );
 };
 
@@ -122,6 +218,7 @@ const MapComponent = ({ onAreaUpdate }: MapComponentProps) => {
   const [isMovingPoint, setIsMovingPoint] = useState(false);
   const [userLocation, setUserLocation] = useState<PolygonPoint | null>(null);
   const [isLocating, setIsLocating] = useState(false);
+  const [editingMeasurement, setEditingMeasurement] = useState<{fieldId: string | null; index: number} | null>(null);
 
   // Add ref to track if we're dragging
   const isDraggingRef = useRef(false);
@@ -485,6 +582,85 @@ const MapComponent = ({ onAreaUpdate }: MapComponentProps) => {
     return `${meters.toFixed(1)} m`;
   }, []);
 
+  // Add function to adjust line length
+  const adjustLineLength = useCallback((
+    points: PolygonPoint[], 
+    index: number, 
+    newLength: number
+  ): PolygonPoint[] => {
+    const point1 = points[index];
+    const point2 = points[(index + 1) % points.length];
+    
+    // Calculate current length
+    const currentLength = google.maps.geometry.spherical.computeDistanceBetween(
+      new google.maps.LatLng(point1.lat, point1.lng),
+      new google.maps.LatLng(point2.lat, point2.lng)
+    );
+    
+    // Calculate scale factor
+    const scale = newLength / currentLength;
+    
+    // Calculate vector from point1 to point2
+    const dx = point2.lng - point1.lng;
+    const dy = point2.lat - point1.lat;
+    
+    // Calculate new point2 position
+    const newPoint2 = {
+      lat: point1.lat + (dy * scale),
+      lng: point1.lng + (dx * scale)
+    };
+    
+    // Create new points array with adjusted point
+    const newPoints = [...points];
+    newPoints[(index + 1) % points.length] = newPoint2;
+    
+    return newPoints;
+  }, []);
+
+  // Add handler for length change
+  const handleLengthChange = useCallback((newLength: number) => {
+    if (!editingMeasurement) return;
+
+    const { fieldId, index } = editingMeasurement;
+
+    if (fieldId) {
+      // Update completed field
+      setFields(prevFields => 
+        prevFields.map(field => {
+          if (field.id === fieldId) {
+            const newPoints = adjustLineLength(field.points, index, newLength);
+            const newArea = calculateArea(newPoints);
+            const { totalDistance, lineMeasurements } = calculatePerimeter(newPoints);
+            return {
+              ...field,
+              points: newPoints,
+              area: newArea,
+              perimeter: totalDistance,
+              measurements: lineMeasurements
+            };
+          }
+          return field;
+        })
+      );
+    } else {
+      // Update current field
+      if (currentField) {
+        const newPoints = adjustLineLength(currentField.points, index, newLength);
+        const newArea = calculateArea(newPoints);
+        const { totalDistance, lineMeasurements } = calculatePerimeter(newPoints);
+        setCurrentField({
+          ...currentField,
+          points: newPoints,
+          area: newArea,
+          perimeter: totalDistance,
+          measurements: lineMeasurements
+        });
+      }
+    }
+
+    setEditingMeasurement(null);
+  }, [editingMeasurement, currentField, adjustLineLength, calculateArea, calculatePerimeter]);
+
   // Client-side effect
   useEffect(() => {
     setIsClient(true);
@@ -551,11 +727,17 @@ const MapComponent = ({ onAreaUpdate }: MapComponentProps) => {
                   const nextPoint = points[(index + 1) % points.length];
                   const midpoint = calculateMidpoint(point, nextPoint);
                   const length = field.measurements[index]?.length || 0;
+                  const isEditing = editingMeasurement?.fieldId === field.id && editingMeasurement?.index === index;
+                  
                   return (
                     <MeasurementLabel
                       key={`measurement-${field.id}-${index}`}
                       position={midpoint}
                       text={formatLength(length)}
+                      isEditing={isEditing}
+                      onEditStart={() => setEditingMeasurement({ fieldId: field.id, index })}
+                      onLengthChange={handleLengthChange}
+                      onCancel={() => setEditingMeasurement(null)}
                     />
                   );
                 })}
@@ -598,11 +780,17 @@ const MapComponent = ({ onAreaUpdate }: MapComponentProps) => {
                   const nextPoint = points[(index + 1) % points.length];
                   const midpoint = calculateMidpoint(point, nextPoint);
                   const length = currentField.measurements[index]?.length || 0;
+                  const isEditing = editingMeasurement?.fieldId === null && editingMeasurement?.index === index;
+                  
                   return (
                     <MeasurementLabel
                       key={`measurement-current-${index}`}
                       position={midpoint}
                       text={formatLength(length)}
+                      isEditing={isEditing}
+                      onEditStart={() => setEditingMeasurement({ fieldId: null, index })}
+                      onLengthChange={handleLengthChange}
+                      onCancel={() => setEditingMeasurement(null)}
                     />
                   );
                 })}
@@ -855,23 +1043,5 @@ const MapComponent = ({ onAreaUpdate }: MapComponentProps) => {
     </LoadScript>
   );
 };
-
-// Update styles to include corner labels
-const styles = document.createElement('style');
-styles.textContent = `
-  .measurement-label {
-    background-color: rgba(255, 255, 255, 0.8);
-    padding: 2px 4px;
-    border-radius: 4px;
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
-  }
-  .corner-label {
-    background-color: rgba(255, 255, 255, 0.9);
-    padding: 0px 6px;
-    border-radius: 50%;
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
-  }
-`;
-document.head.appendChild(styles);
 
 export default MapComponent; 
