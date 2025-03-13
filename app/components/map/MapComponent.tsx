@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useCallback, useRef, useEffect, useMemo } from 'react';
-import { GoogleMap, LoadScript, Polygon, Polyline, Marker, Circle } from '@react-google-maps/api';
+import { GoogleMap, LoadScript, Polygon, Polyline, Marker, Circle, OverlayView } from '@react-google-maps/api';
 import Navbar from './Navbar';
 import MapControls from './MapControls';
 import CreateMenu from './CreateMenu';
@@ -125,6 +125,47 @@ const MeasurementLabel = ({
     }
   };
 
+  if (isEditing) {
+    return (
+      <OverlayView
+        position={position}
+        mapPaneName={OverlayView.OVERLAY_MOUSE_TARGET}
+      >
+        <div 
+          className="measurement-input-container"
+          style={{
+            position: 'absolute',
+            transform: 'translate(-50%, -50%)',
+            backgroundColor: 'white',
+            padding: '4px',
+            borderRadius: '4px',
+            boxShadow: '0 2px 4px rgba(0,0,0,0.2)',
+            zIndex: 1000,
+          }}
+        >
+          <input
+            type="text"
+            value={inputValue}
+            onChange={(e) => setInputValue(e.target.value)}
+            onKeyDown={handleKeyDown}
+            className="measurement-input"
+            autoFocus
+            style={{
+              width: '70px',
+              padding: '4px 8px',
+              border: '1px solid #ccc',
+              borderRadius: '4px',
+              fontSize: '14px',
+              fontWeight: 'bold',
+              textAlign: 'center',
+            }}
+          />
+          <span style={{ marginLeft: '4px', fontSize: '14px' }}>m</span>
+        </div>
+      </OverlayView>
+    );
+  }
+
   return (
     <Marker
       position={position}
@@ -135,7 +176,7 @@ const MeasurementLabel = ({
         strokeOpacity: 0,
       }}
       label={{
-        text: isEditing ? '' : text,
+        text: text,
         color: '#000000',
         fontSize: '14px',
         fontWeight: 'bold',
@@ -145,30 +186,7 @@ const MeasurementLabel = ({
       options={{
         clickable: true
       }}
-    >
-      {isEditing && (
-        <div className="measurement-input-container">
-          <input
-            type="text"
-            value={inputValue}
-            onChange={(e) => setInputValue(e.target.value)}
-            onKeyDown={handleKeyDown}
-            className="measurement-input"
-            autoFocus
-            style={{
-              width: '60px',
-              padding: '2px 4px',
-              border: '1px solid #000',
-              borderRadius: '4px',
-              backgroundColor: 'white',
-              fontSize: '14px',
-              fontWeight: 'bold',
-            }}
-          />
-          <span style={{ marginLeft: '2px' }}>m</span>
-        </div>
-      )}
-    </Marker>
+    />
   );
 };
 
