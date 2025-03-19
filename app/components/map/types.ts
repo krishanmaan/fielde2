@@ -29,11 +29,11 @@ export const mapStyles = {
 } as const;
 
 export const defaultCenter = {
-  lat: 28.6139,
-  lng: 77.2090
+  lat: 27.342889,
+  lng: 75.790417
 };
 
-export const defaultZoom = 15;
+export const defaultZoom = 18;
 
 export interface MapComponentProps {
   onAreaUpdate: (area: number) => void;

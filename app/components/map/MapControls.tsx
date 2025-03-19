@@ -24,7 +24,7 @@ const MapControls: React.FC<MapControlsProps> = ({
   isLocating
 }) => {
   return (
-    <div className="absolute bottom-4 right-4 flex flex-col gap-2">
+    <div className="absolute bottom-35 right-6 flex flex-col gap-2 ">
       <button
         onClick={() => onMapTypeChange(currentMapType)}
         className="bg-white p-2 rounded-lg shadow-lg hover:bg-gray-100 transition-colors"
