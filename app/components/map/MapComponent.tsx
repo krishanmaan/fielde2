@@ -263,9 +263,9 @@ const MapComponent = ({ onAreaUpdate }: MapComponentProps) => {
     }
   }, [state.map, state.fields, state.currentField, setters]);
 
-  const handleMarkerDrag = useCallback((e: google.maps.MapMouseEvent) => {
+  const handleMarkerDrag = useCallback((e: google.maps.MapMouseEvent, index?: number, fieldId?: string | null) => {
     if (e.latLng) {
-      setters.handleMarkerDrag(e, state.selectedPoint || 0, state.selectedFieldId);
+      setters.handleMarkerDrag(e, index ?? state.selectedPoint ?? 0, fieldId ?? state.selectedFieldId);
     }
   }, [setters, state.selectedPoint, state.selectedFieldId]);
 
@@ -526,7 +526,11 @@ const MapComponent = ({ onAreaUpdate }: MapComponentProps) => {
                         icon={getSelectedMarkerIcon()}
                         onDragStart={(e) => handleMarkerDragStart(e, index, field.id)}
                         onDragEnd={() => setters.handleMovementEnd()}
-                        onDrag={handleMarkerDrag}
+                        onDrag={(e) => {
+                          if (e.latLng) {
+                            handleMarkerDrag(e, index, field.id);
+                          }
+                        }}
                         options={{
                           clickable: true,
                           draggable: true
@@ -551,13 +555,40 @@ const MapComponent = ({ onAreaUpdate }: MapComponentProps) => {
                         }}
                         onClick={(e) => {
                           e.domEvent.stopPropagation();
-                          handleMarkerClick(index, field.id);
+                          // Insert new point at midpoint position
+                          const points = state.isMovingPoint && state.selectedFieldId === field.id ? 
+                            state.tempPoints : field.points;
+                          const newPoints = [...points];
+                          newPoints.splice(index + 1, 0, midpoint);
+                          
+                          if (field.id) {
+                            setters.setFields(prev => prev.map(f => {
+                              if (f.id === field.id) {
+                                const newArea = calculations.calculateArea(newPoints);
+                                const { totalDistance, lineMeasurements } = calculations.calculatePerimeter(newPoints);
+                                return {
+                                  ...f,
+                                  points: newPoints,
+                                  area: newArea,
+                                  perimeter: totalDistance,
+                                  measurements: lineMeasurements
+                                };
+                              }
+                              return f;
+                            }));
+                          }
+                          
+                          // Select the newly created point
+                          handleMarkerClick(index + 1, field.id);
                         }}
                         onMouseOver={() => setters.handleMarkerHover(`mid-${index}`)}
                         onMouseOut={() => setters.handleMarkerHover(null)}
-                        onDragStart={(e) => handleMarkerDragStart(e, index, field.id)}
+                        onDrag={(e) => {
+                          if (e.latLng) {
+                            handleMarkerDrag(e, index + 1, field.id);
+                          }
+                        }}
                         onDragEnd={() => setters.handleMovementEnd()}
-                        onDrag={handleMarkerDrag}
                         options={{
                           clickable: true,
                           draggable: !state.isDrawing
@@ -675,7 +706,11 @@ const MapComponent = ({ onAreaUpdate }: MapComponentProps) => {
                         icon={getSelectedMarkerIcon()}
                         onDragStart={(e) => state.currentField && setters.handleMovementStart(index, null, state.currentField.points)}
                         onDragEnd={() => setters.handleMovementEnd()}
-                        onDrag={(e) => setters.handleMarkerDrag(e, index, null)}
+                        onDrag={(e) => {
+                          if (e.latLng) {
+                            handleMarkerDrag(e, index, null);
+                          }
+                        }}
                         options={{
                           clickable: true,
                           draggable: true
@@ -705,13 +740,34 @@ const MapComponent = ({ onAreaUpdate }: MapComponentProps) => {
                         }}
                         onClick={(e) => {
                           e.domEvent.stopPropagation();
-                          handleMarkerClick(index, null);
+                          // Insert new point at midpoint position
+                          if (state.currentField) {
+                            const points = state.isMovingPoint ? state.tempPoints : state.currentField.points;
+                            const newPoints = [...points];
+                            newPoints.splice(index + 1, 0, midpoint);
+                            
+                            const newArea = calculations.calculateArea(newPoints);
+                            const { totalDistance, lineMeasurements } = calculations.calculatePerimeter(newPoints);
+                            setters.setCurrentField({
+                              ...state.currentField,
+                              points: newPoints,
+                              area: newArea,
+                              perimeter: totalDistance,
+                              measurements: lineMeasurements
+                            });
+                            
+                            // Select the newly created point
+                            handleMarkerClick(index + 1, null);
+                          }
                         }}
                         onMouseOver={() => setters.handleMarkerHover(`mid-${index}`)}
                         onMouseOut={() => setters.handleMarkerHover(null)}
-                        onDragStart={(e) => state.currentField && setters.handleMovementStart(index, null, state.currentField.points)}
+                        onDrag={(e) => {
+                          if (e.latLng) {
+                            handleMarkerDrag(e, index + 1, null);
+                          }
+                        }}
                         onDragEnd={() => setters.handleMovementEnd()}
-                        onDrag={(e) => setters.handleMarkerDrag(e, index, null)}
                         options={{
                           clickable: true,
                           draggable: !state.isDrawing
