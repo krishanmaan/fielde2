@@ -1,7 +1,9 @@
 'use client';
 
-import { useState, useCallback, useRef, useMemo } from 'react';
+import { useState, useCallback, useRef, useMemo, useEffect } from 'react';
 import { Field, PolygonPoint } from '../types';
+
+const STORAGE_KEY = 'savedFields';
 
 export const useMapLogic = () => {
   const [isDrawing, setIsDrawing] = useState(false);
@@ -40,6 +42,102 @@ export const useMapLogic = () => {
     currentIndex: null,
     fieldId: null
   });
+
+  // Add a ref to track the last update time for throttling
+  const lastUpdateRef = useRef<number>(0);
+
+  // Store current points in ref for immediate access
+  const currentPointsRef = useRef<PolygonPoint[]>([]);
+  const fieldIdRef = useRef<string | null>(null);
+
+  // Load saved fields from localStorage on initial load
+  useEffect(() => {
+    try {
+      const savedFields = localStorage.getItem(STORAGE_KEY);
+      if (savedFields) {
+        setFields(JSON.parse(savedFields));
+        console.log('Loaded saved fields:', JSON.parse(savedFields));
+      }
+    } catch (error) {
+      console.error('Error loading saved fields:', error);
+    }
+  }, []);
+
+  // Save fields to localStorage whenever they change
+  useEffect(() => {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(fields));
+      console.log('Saved fields to localStorage:', fields);
+    } catch (error) {
+      console.error('Error saving fields:', error);
+    }
+  }, [fields]);
+
+  // Add a function to clear saved fields
+  const clearSavedFields = useCallback(() => {
+    try {
+      localStorage.removeItem(STORAGE_KEY);
+      setFields([]);
+      console.log('Cleared saved fields');
+    } catch (error) {
+      console.error('Error clearing saved fields:', error);
+    }
+  }, []);
+
+  // State object for easy access
+  const state = {
+    isDrawing,
+    fields,
+    currentField,
+    area,
+    showCreateMenu,
+    mapType,
+    isFullscreen,
+    perimeter,
+    measurements,
+    selectedPoint,
+    selectedFieldId,
+    hoveredPoint,
+    isDraggingMarker,
+    tempPoints,
+    isMovingPoint,
+    userLocation,
+    isLocating,
+    editingMeasurement,
+    map
+  };
+
+  // Modify handleCreateOption to save field when completed
+  const handleCreateOption = useCallback((option: 'import' | 'field' | 'distance' | 'marker') => {
+    if (option === 'field') {
+      // If there's a current field with points, save it
+      if (state.currentField?.points.length) {
+        const finalField = {
+          ...state.currentField,
+          id: Date.now().toString()
+        };
+        setFields(prev => {
+          const newFields = [...prev, finalField];
+          // Save to localStorage
+          try {
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(newFields));
+          } catch (error) {
+            console.error('Error saving fields:', error);
+          }
+          return newFields;
+        });
+      }
+      // Start new field
+      setCurrentField({
+        id: Date.now().toString(),
+        points: [],
+        area: 0,
+        perimeter: 0,
+        measurements: []
+      });
+      setIsDrawing(true);
+    }
+  }, [state]);
 
   // Calculate area
   const calculateArea = useCallback((polygonPoints: PolygonPoint[]) => {
@@ -126,18 +224,71 @@ export const useMapLogic = () => {
     }
   }, []);
 
-  // Modify marker movement handlers
+  // Direct marker drag handler without throttling
+  const handleMarkerDrag = useCallback((e: google.maps.MapMouseEvent, index: number, fieldId: string | null) => {
+    if (!e.latLng) return;
+
+    const newLat = e.latLng.lat();
+    const newLng = e.latLng.lng();
+    const newPoint = { lat: newLat, lng: newLng };
+
+    // Get the current points array based on fieldId
+    const currentPoints = fieldId 
+      ? fields.find(f => f.id === fieldId)?.points || []
+      : currentField?.points || [];
+
+    // Create new points array with updated position
+    const newPoints = [...currentPoints];
+    newPoints[index] = newPoint;
+
+    // Update the points immediately
+    setTempPoints(newPoints);
+
+    // Update the field with new points
+    if (fieldId) {
+      setFields(prevFields => 
+        prevFields.map(field => {
+          if (field.id === fieldId) {
+            const newArea = calculateArea(newPoints);
+            const { totalDistance, lineMeasurements } = calculatePerimeter(newPoints);
+            return {
+              ...field,
+              points: newPoints,
+              area: newArea,
+              perimeter: totalDistance,
+              measurements: lineMeasurements
+            };
+          }
+          return field;
+        })
+      );
+    } else if (currentField) {
+      const newArea = calculateArea(newPoints);
+      const { totalDistance, lineMeasurements } = calculatePerimeter(newPoints);
+      setCurrentField({
+        ...currentField,
+        points: newPoints,
+        area: newArea,
+        perimeter: totalDistance,
+        measurements: lineMeasurements
+      });
+    }
+  }, [fields, currentField, calculateArea, calculatePerimeter, setFields, setCurrentField, setTempPoints]);
+
+  // Update movement start to initialize points
   const handleMovementStart = useCallback((index: number, fieldId: string | null, points: PolygonPoint[]) => {
-    dragStateRef.current = {
-      isDragging: true,
-      originalPoints: [...points],
-      currentIndex: index,
-      fieldId: fieldId
-    };
     setIsMovingPoint(true);
+    setSelectedPoint(index);
+    setSelectedFieldId(fieldId);
+    
+    // Initialize tempPoints with current points
+    setTempPoints([...points]);
   }, []);
 
+  // Clear refs on movement end
   const handleMovementEnd = useCallback(() => {
+    currentPointsRef.current = [];
+    fieldIdRef.current = null;
     dragStateRef.current = {
       isDragging: false,
       originalPoints: [],
@@ -148,101 +299,16 @@ export const useMapLogic = () => {
     setSelectedPoint(null);
   }, []);
 
-  // Update point position with immediate response
-  const updatePointPosition = useCallback((newLat: number, newLng: number) => {
-    if (!dragStateRef.current.isDragging || dragStateRef.current.currentIndex === null) return;
+  // Memoize calculations object
+  const calculations = useMemo(() => ({
+    calculateArea,
+    calculatePerimeter,
+    calculateMidpoint,
+    formatLength,
+    adjustLineLength
+  }), [calculateArea, calculatePerimeter, calculateMidpoint, formatLength, adjustLineLength]);
 
-    const newPoints = [...dragStateRef.current.originalPoints];
-    newPoints[dragStateRef.current.currentIndex] = {
-      lat: newLat,
-      lng: newLng
-    };
-
-    // Batch all updates together for immediate response
-    if (dragStateRef.current.fieldId) {
-      const newArea = calculateArea(newPoints);
-      const { totalDistance, lineMeasurements } = calculatePerimeter(newPoints);
-      
-      // Update everything in one batch
-      Promise.resolve().then(() => {
-        setTempPoints(newPoints);
-        setFields(prevFields => 
-          prevFields.map(field => {
-            if (field.id === dragStateRef.current.fieldId) {
-              return {
-                ...field,
-                points: newPoints,
-                area: newArea,
-                perimeter: totalDistance,
-                measurements: lineMeasurements
-              };
-            }
-            return field;
-          })
-        );
-      });
-    } else if (currentField) {
-      const newArea = calculateArea(newPoints);
-      const { totalDistance, lineMeasurements } = calculatePerimeter(newPoints);
-      
-      // Update everything in one batch
-      Promise.resolve().then(() => {
-        setTempPoints(newPoints);
-        setCurrentField({
-          ...currentField,
-          points: newPoints,
-          area: newArea,
-          perimeter: totalDistance,
-          measurements: lineMeasurements
-        });
-      });
-    }
-  }, [calculateArea, calculatePerimeter, currentField, setCurrentField, setFields, setTempPoints]);
-
-  // Memoize state object to prevent unnecessary re-renders
-  const state = useMemo(() => ({
-    isDrawing,
-    fields,
-    currentField,
-    area,
-    showCreateMenu,
-    mapType,
-    isFullscreen,
-    perimeter,
-    measurements,
-    selectedPoint,
-    selectedFieldId,
-    hoveredPoint,
-    isDraggingMarker,
-    tempPoints,
-    isMovingPoint,
-    userLocation,
-    isLocating,
-    editingMeasurement,
-    map
-  }), [
-    isDrawing,
-    fields,
-    currentField,
-    area,
-    showCreateMenu,
-    mapType,
-    isFullscreen,
-    perimeter,
-    measurements,
-    selectedPoint,
-    selectedFieldId,
-    hoveredPoint,
-    isDraggingMarker,
-    tempPoints,
-    isMovingPoint,
-    userLocation,
-    isLocating,
-    editingMeasurement,
-    map
-  ]);
-
-  // Memoize setters object
+  // Add clearSavedFields and handleCreateOption to setters
   const setters = useMemo(() => ({
     setIsDrawing,
     setFields,
@@ -266,17 +332,17 @@ export const useMapLogic = () => {
     handleMarkerHover,
     handleMovementStart,
     handleMovementEnd,
-    updatePointPosition
-  }), [handleMarkerHover, handleMovementStart, handleMovementEnd, updatePointPosition]);
-
-  // Memoize calculations object
-  const calculations = useMemo(() => ({
-    calculateArea,
-    calculatePerimeter,
-    calculateMidpoint,
-    formatLength,
-    adjustLineLength
-  }), [calculateArea, calculatePerimeter, calculateMidpoint, formatLength, adjustLineLength]);
+    handleMarkerDrag,
+    clearSavedFields,
+    handleCreateOption
+  }), [
+    handleMarkerHover,
+    handleMovementStart,
+    handleMovementEnd,
+    handleMarkerDrag,
+    clearSavedFields,
+    handleCreateOption
+  ]);
 
   return {
     state,

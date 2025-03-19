@@ -1,10 +1,7 @@
 'use client';
 
-import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { 
-  faLocationCrosshairs,
-  faExpand
-} from '@fortawesome/free-solid-svg-icons';
+import React from 'react';
+import { FaMapMarkedAlt, FaLocationArrow, FaExpand, FaCompress, FaTrash } from 'react-icons/fa';
 import MapTypeMenu from './MapTypeMenu';
 
 type MapType = 'hybrid' | 'satellite' | 'roadmap' | 'terrain';
@@ -14,39 +11,52 @@ interface MapControlsProps {
   onMapTypeChange: (type: MapType) => void;
   onLocationClick: () => void;
   onToggleFullscreen: () => void;
+  onClearFields: () => void;
   isLocating: boolean;
 }
 
-const MapControls = ({ 
+const MapControls: React.FC<MapControlsProps> = ({
   currentMapType,
   onMapTypeChange,
-  onLocationClick, 
+  onLocationClick,
   onToggleFullscreen,
+  onClearFields,
   isLocating
-}: MapControlsProps) => {
+}) => {
   return (
-    <div className="absolute right-3 top-16 flex flex-col gap-2">
-      <MapTypeMenu 
-        currentType={currentMapType}
-        onTypeChange={onMapTypeChange}
-      />
-      <button 
-        onClick={onLocationClick}
-        disabled={isLocating}
-        className={`${
-          isLocating ? 'bg-gray-500' : 'bg-[#FF4C4C] hover:bg-[#FF3C3C]'
-        } w-12 h-12 rounded-lg flex items-center justify-center transition-colors`}
+    <div className="absolute bottom-4 right-4 flex flex-col gap-2">
+      <button
+        onClick={() => onMapTypeChange(currentMapType)}
+        className="bg-white p-2 rounded-lg shadow-lg hover:bg-gray-100 transition-colors"
+        title="Change map type"
       >
-        <FontAwesomeIcon 
-          icon={faLocationCrosshairs} 
-          className={`h-5 w-5 text-white ${isLocating ? 'animate-pulse' : ''}`} 
-        />
+        <FaMapMarkedAlt className="text-gray-700 text-xl" />
       </button>
-      <button 
-        onClick={onToggleFullscreen}
-        className="bg-black bg-opacity-60 w-12 h-12 rounded-lg flex items-center justify-center hover:bg-opacity-80 transition-colors"
+      <button
+        onClick={onLocationClick}
+        className="bg-white p-2 rounded-lg shadow-lg hover:bg-gray-100 transition-colors"
+        title="Go to my location"
+        disabled={isLocating}
       >
-        <FontAwesomeIcon icon={faExpand} className="h-5 w-5 text-white" />
+        <FaLocationArrow className={`text-xl ${isLocating ? 'text-gray-400 animate-spin' : 'text-gray-700'}`} />
+      </button>
+      <button
+        onClick={onToggleFullscreen}
+        className="bg-white p-2 rounded-lg shadow-lg hover:bg-gray-100 transition-colors"
+        title="Toggle fullscreen"
+      >
+        {document.fullscreenElement ? (
+          <FaCompress className="text-gray-700 text-xl" />
+        ) : (
+          <FaExpand className="text-gray-700 text-xl" />
+        )}
+      </button>
+      <button
+        onClick={onClearFields}
+        className="bg-white p-2 rounded-lg shadow-lg hover:bg-gray-100 transition-colors"
+        title="Clear all fields"
+      >
+        <FaTrash className="text-red-500 text-xl" />
       </button>
     </div>
   );

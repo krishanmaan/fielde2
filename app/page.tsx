@@ -1,39 +1,27 @@
 'use client';
 
-import { NextPage } from 'next';
-import { useState, useCallback } from 'react';
+import React from 'react';
 import dynamic from 'next/dynamic';
+import { LoadScript } from '@react-google-maps/api';
+import type { Libraries } from '@react-google-maps/api';
 
-// Dynamically import MapComponent with no SSR
-const MapComponent = dynamic(
-  () => import('./components/map/MapComponent'),
-  { 
-    ssr: false,
-    loading: () => (
-      <div className="w-full h-screen flex items-center justify-center bg-gray-100">
-        <div className="text-gray-600">Initializing map...</div>
-      </div>
-    )
-  }
-);
+const libraries: Libraries = ['places', 'geometry', 'drawing'];
 
-const Home: NextPage = () => {
-  const [area, setArea] = useState<number>(0);
+// Dynamically import MapComponent to avoid SSR issues
+const MapComponent = dynamic(() => import('./components/map/MapComponent'), {
+  loading: () => <div>Loading map...</div>,
+  ssr: false
+});
 
-  const handleAreaUpdate = useCallback((newArea: number) => {
-    setArea(newArea);
-  }, []);
-
+export default function Home() {
   return (
-    <main className="min-h-screen" suppressHydrationWarning>
-      <MapComponent onAreaUpdate={handleAreaUpdate} />
-      {area > 0 && (
-        <div className="fixed hidden bottom-4 right-4 bg-white p-4 rounded-lg shadow-lg">
-          <p>Total Area: {area.toFixed(2)} hectares</p>
-        </div>
-      )}
-    </main>
+    <LoadScript
+      googleMapsApiKey={process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY || ''}
+      libraries={libraries}
+    >
+      <main className="min-h-screen">
+        <MapComponent onAreaUpdate={() => {}} />
+      </main>
+    </LoadScript>
   );
-};
-
-export default Home;
+}

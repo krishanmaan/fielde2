@@ -1,7 +1,7 @@
 'use client';
 
-import React, { useCallback, useEffect, useState } from 'react';
-import { GoogleMap, LoadScript, Polygon, Polyline, Marker, Circle } from '@react-google-maps/api';
+import React, { useCallback, useEffect, useState, useMemo } from 'react';
+import { GoogleMap, Polygon, Polyline, Marker, Circle } from '@react-google-maps/api';
 import Navbar from './Navbar';
 import MapControls from './MapControls';
 import CreateMenu from './CreateMenu';
@@ -10,7 +10,11 @@ import FieldMeasurements from './FieldMeasurements';
 import MeasurementLabel from './MeasurementLabel';
 import CornerLabel from './CornerLabel';
 import { useMapLogic } from './hooks/useMapLogic';
-import { libraries, mapStyles, defaultCenter, MARKER_PATH, MapComponentProps } from './types';
+import { libraries, mapStyles, defaultCenter, defaultZoom, MARKER_PATH, MapComponentProps } from './types';
+import LoadingState from './LoadingState';
+import SaveDialog from './SaveDialog';
+import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 
 // Add styles to document
 const styles = document.createElement('style');
@@ -50,15 +54,29 @@ document.head.appendChild(styles);
 
 const MapComponent = ({ onAreaUpdate }: MapComponentProps) => {
   const [isClient, setIsClient] = useState(false);
+  const [mapLoaded, setMapLoaded] = useState(false);
   const {
     state,
     setters,
     calculations
   } = useMapLogic();
+  const [showSaveDialog, setShowSaveDialog] = useState(false);
+  const searchParams = useSearchParams();
+  const mapId = searchParams.get('mapId');
 
   // Map event handlers
   const onLoad = useCallback((map: google.maps.Map) => {
+    console.log('Map loading...');
     setters.setMap(map);
+    map.setOptions({
+      zoom: defaultZoom,
+      center: defaultCenter,
+      mapTypeId: 'hybrid',
+      gestureHandling: 'greedy',
+      tilt: 0
+    });
+    setMapLoaded(true);
+    console.log('Map loaded successfully');
   }, [setters]);
 
   const onUnmount = useCallback(() => {
@@ -220,26 +238,6 @@ const MapComponent = ({ onAreaUpdate }: MapComponentProps) => {
     }
   }, [state.currentField, calculations, setters]);
 
-  // Update map options
-  const mapOptions = {
-    mapTypeId: state.mapType,
-    mapTypeControl: false,
-    streetViewControl: false,
-    fullscreenControl: false,
-    zoomControl: true,
-    scaleControl: true,
-    rotateControl: false,
-    panControl: false,
-    scrollwheel: !state.isMovingPoint,
-    clickableIcons: false,
-    disableDefaultUI: true,
-    tilt: 0,
-    gestureHandling: 'greedy',
-    draggableCursor: state.isDrawing ? 'crosshair' : 'grab',
-    draggingCursor: 'move',
-    draggable: !state.isMovingPoint,
-  };
-
   // Marker handlers
   const handleMarkerClick = useCallback((index: number, fieldId: string | null) => {
     setters.setSelectedPoint(index);
@@ -267,9 +265,9 @@ const MapComponent = ({ onAreaUpdate }: MapComponentProps) => {
 
   const handleMarkerDrag = useCallback((e: google.maps.MapMouseEvent) => {
     if (e.latLng) {
-      setters.updatePointPosition(e.latLng.lat(), e.latLng.lng());
+      setters.handleMarkerDrag(e, state.selectedPoint || 0, state.selectedFieldId);
     }
-  }, [setters]);
+  }, [setters, state.selectedPoint, state.selectedFieldId]);
 
   // Add handler for search location select
   const handlePlaceSelect = useCallback((location: google.maps.LatLng) => {
@@ -328,339 +326,358 @@ const MapComponent = ({ onAreaUpdate }: MapComponentProps) => {
     setIsClient(true);
   }, []);
 
+  // Load saved map if mapId is present
+  useEffect(() => {
+    if (mapId) {
+      const savedMaps = localStorage.getItem('savedMaps');
+      if (savedMaps) {
+        const maps = JSON.parse(savedMaps);
+        const map = maps.find((m: any) => m.id === mapId);
+        if (map) {
+          setters.setFields([map.field]);
+        }
+      }
+    }
+  }, [mapId]);
+
+  const handleSave = (data: { name: string; description: string; group: string }) => {
+    const savedMap = {
+      id: Date.now().toString(),
+      name: data.name,
+      description: data.description,
+      group: data.group,
+      field: state.currentField || state.fields[0],
+      createdAt: new Date().toISOString()
+    };
+
+    const existingMaps = localStorage.getItem('savedMaps');
+    const maps = existingMaps ? JSON.parse(existingMaps) : [];
+    maps.push(savedMap);
+    localStorage.setItem('savedMaps', JSON.stringify(maps));
+
+    setShowSaveDialog(false);
+  };
+
+  // Create marker icons
+  const getRegularMarkerIcon = useCallback((isHovered: boolean, color: string = '#00ff00') => ({
+    path: mapLoaded ? window.google.maps.SymbolPath.CIRCLE : 0,
+    scale: 8,
+    fillColor: isHovered ? '#FFFFFF' : color,
+    fillOpacity: 1,
+    strokeWeight: 2,
+    strokeColor: '#000000',
+  }), [mapLoaded]);
+
+  const getSelectedMarkerIcon = useCallback((color: string = '#FF0000') => ({
+    path: MARKER_PATH,
+    fillColor: color,
+    fillOpacity: 1,
+    strokeWeight: 1,
+    strokeColor: '#000000',
+    scale: 1.2,
+    rotation: 180,
+    anchor: mapLoaded ? new window.google.maps.Point(0, 0) : undefined,
+  }), [mapLoaded]);
+
   if (!isClient) {
-    return (
-      <div className="w-full h-screen flex items-center justify-center">
-        <div>Loading map...</div>
-      </div>
-    );
+    return <LoadingState />;
   }
 
   return (
-    <LoadScript
-      googleMapsApiKey={process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY || ''}
-      libraries={libraries}
-    >
-      <div className="flex flex-col h-screen w-full">
-        <Navbar onPlaceSelect={handlePlaceSelect} />
-        <div style={mapStyles.container}>
-          <GoogleMap
-            mapContainerStyle={mapStyles.map}
-            center={defaultCenter}
-            zoom={15}
-            onLoad={onLoad}
-            onUnmount={onUnmount}
-            onClick={handleMapClick}
-            options={mapOptions}
-          >
-            {/* Render all completed fields with measurements */}
-            {state.fields.map((field) => (
-              <React.Fragment key={field.id}>
-                {!state.isMovingPoint || state.selectedFieldId !== field.id ? (
-                  <Polygon
-                    paths={field.points}
-                    options={{
-                      fillColor: '#00ff00',
-                      fillOpacity: 0.3,
-                      strokeColor: '#00ff00',
-                      strokeWeight: 2,
-                      editable: !state.isDrawing,
-                      draggable: !state.isDrawing,
-                    }}
-                  />
-                ) : (
-                  <Polygon
-                    paths={state.tempPoints}
-                    options={{
-                      fillColor: '#00ff00',
-                      fillOpacity: 0.3,
-                      strokeColor: '#00ff00',
-                      strokeWeight: 2,
-                      editable: false,
-                      draggable: false,
-                    }}
-                  />
-                )}
+    <div className="flex flex-col h-screen w-full">
+      <Navbar onPlaceSelect={handlePlaceSelect} />
+      <div className="relative flex-1">
+        <GoogleMap
+          mapContainerStyle={mapStyles.map}
+          center={defaultCenter}
+          zoom={defaultZoom}
+          onLoad={onLoad}
+          onUnmount={onUnmount}
+          onClick={handleMapClick}
+          options={{
+            mapTypeId: state.mapType,
+            mapTypeControl: false,
+            streetViewControl: false,
+            fullscreenControl: false,
+            zoomControl: true,
+            scaleControl: true,
+            rotateControl: false,
+            panControl: false,
+            scrollwheel: !state.isMovingPoint,
+            clickableIcons: false,
+            disableDefaultUI: true,
+            tilt: 0,
+            gestureHandling: 'greedy',
+            draggableCursor: state.isDrawing ? 'crosshair' : 'grab',
+            draggingCursor: 'move',
+            draggable: !state.isMovingPoint,
+            minZoom: 3,
+            maxZoom: 20
+          }}
+        >
+          {/* Render all completed fields with measurements */}
+          {state.fields.map((field) => (
+            <React.Fragment key={field.id}>
+              {/* Always show the polygon */}
+              <Polygon
+                paths={state.isMovingPoint && state.selectedFieldId === field.id ? state.tempPoints : field.points}
+                options={{
+                  fillColor: '#00ff00',
+                  fillOpacity: 0.3,
+                  strokeColor: '#00ff00',
+                  strokeWeight: 2,
+                  editable: false,
+                  draggable: false,
+                  clickable: true,
+                  zIndex: 1
+                }}
+              />
 
-                {/* Add measurement labels for each line */}
-                {(state.isMovingPoint && state.selectedFieldId === field.id ? state.tempPoints : field.points).map((point, index) => {
-                  const points = state.isMovingPoint && state.selectedFieldId === field.id ? state.tempPoints : field.points;
+              {/* Add measurement labels for each line */}
+              {(state.isMovingPoint && state.selectedFieldId === field.id ? state.tempPoints : field.points).map((point, index) => {
+                const points = state.isMovingPoint && state.selectedFieldId === field.id ? state.tempPoints : field.points;
+                const nextPoint = points[(index + 1) % points.length];
+                const midpoint = calculations.calculateMidpoint(point, nextPoint);
+                const length = field.measurements[index]?.length || 0;
+                const isEditing = state.editingMeasurement?.fieldId === field.id && state.editingMeasurement?.index === index;
+                
+                return (
+                  <MeasurementLabel
+                    key={`measurement-${field.id}-${index}`}
+                    position={midpoint}
+                    text={calculations.formatLength(length)}
+                    isEditing={isEditing}
+                    onEditStart={() => setters.setEditingMeasurement({ fieldId: field.id, index })}
+                    onLengthChange={handleLengthChange}
+                    onCancel={() => setters.setEditingMeasurement(null)}
+                  />
+                );
+              })}
+
+              {/* Add corner labels and markers */}
+              {(state.isMovingPoint && state.selectedFieldId === field.id ? state.tempPoints : field.points).map((point, index) => (
+                <React.Fragment key={`${field.id}-${index}`}>
+                  {/* Regular marker */}
+                  {!(state.selectedPoint === index && state.selectedFieldId === field.id) && mapLoaded && (
+                    <Marker
+                      position={point}
+                      draggable={!state.isDrawing}
+                      icon={getRegularMarkerIcon(state.hoveredPoint === index)}
+                      onClick={(e) => {
+                        e.domEvent.stopPropagation();
+                        handleMarkerClick(index, field.id);
+                      }}
+                      onMouseOver={() => setters.handleMarkerHover(index)}
+                      onMouseOut={() => setters.handleMarkerHover(null)}
+                      options={{
+                        clickable: true,
+                        draggable: !state.isDrawing
+                      }}
+                      cursor="pointer"
+                      zIndex={2}
+                    />
+                  )}
+                  
+                  {/* Red marker for selected point */}
+                  {(state.selectedPoint === index && state.selectedFieldId === field.id) && mapLoaded && (
+                    <Marker
+                      position={point}
+                      draggable={true}
+                      icon={getSelectedMarkerIcon()}
+                      onDragStart={(e) => handleMarkerDragStart(e, index, field.id)}
+                      onDragEnd={() => setters.handleMovementEnd()}
+                      onDrag={handleMarkerDrag}
+                      options={{
+                        clickable: true,
+                        draggable: true
+                      }}
+                      cursor="move"
+                      zIndex={3}
+                    />
+                  )}
+                </React.Fragment>
+              ))}
+            </React.Fragment>
+          ))}
+
+          {/* Render current field */}
+          {state.currentField && (
+            <React.Fragment>
+              {state.currentField.points.length >= 3 && (
+                <Polygon
+                  paths={state.isMovingPoint && state.selectedFieldId === null ? state.tempPoints : state.currentField.points}
+                  options={{
+                    fillColor: '#00ff00',
+                    fillOpacity: 0.3,
+                    strokeColor: '#00ff00',
+                    strokeWeight: 2,
+                    editable: !state.isDrawing && !state.isMovingPoint,
+                    draggable: !state.isDrawing && !state.isMovingPoint,
+                    clickable: !state.isMovingPoint
+                  }}
+                />
+              )}
+
+              {/* Add measurement labels for current field */}
+              {state.currentField?.points.length >= 2 && (
+                (state.isMovingPoint && state.selectedFieldId === null ? state.tempPoints : state.currentField?.points)?.map((point, index) => {
+                  const points = state.isMovingPoint && state.selectedFieldId === null ? state.tempPoints : state.currentField?.points;
+                  if (!points) return null;
                   const nextPoint = points[(index + 1) % points.length];
                   const midpoint = calculations.calculateMidpoint(point, nextPoint);
-                  const length = field.measurements[index]?.length || 0;
-                  const isEditing = state.editingMeasurement?.fieldId === field.id && state.editingMeasurement?.index === index;
+                  const length = state.currentField?.measurements[index]?.length || 0;
+                  const isEditing = state.editingMeasurement?.fieldId === null && state.editingMeasurement?.index === index;
                   
                   return (
                     <MeasurementLabel
-                      key={`measurement-${field.id}-${index}`}
+                      key={`measurement-current-${index}`}
                       position={midpoint}
                       text={calculations.formatLength(length)}
                       isEditing={isEditing}
-                      onEditStart={() => setters.setEditingMeasurement({ fieldId: field.id, index })}
+                      onEditStart={() => setters.setEditingMeasurement({ fieldId: null, index })}
                       onLengthChange={handleLengthChange}
                       onCancel={() => setters.setEditingMeasurement(null)}
                     />
                   );
-                })}
+                })
+              )}
 
-                {/* Add corner labels and markers */}
-                {(state.isMovingPoint && state.selectedFieldId === field.id ? state.tempPoints : field.points).map((point, index) => (
-                  <React.Fragment key={`${field.id}-${index}`}>
-                    {/* Regular marker */}
-                    {!(state.selectedPoint === index && state.selectedFieldId === field.id) && (
-                      <Marker
-                        position={point}
-                        draggable={!state.isDrawing}
-                        icon={{
-                          path: google.maps.SymbolPath.CIRCLE,
-                          scale: 8,
-                          fillColor: state.hoveredPoint === index ? '#FFFFFF' : '#00ff00',
-                          fillOpacity: 1,
-                          strokeWeight: 2,
-                          strokeColor: '#000000',
-                        }}
-                        onClick={(e) => {
-                          e.domEvent.stopPropagation();
-                          handleMarkerClick(index, field.id);
-                        }}
-                        onMouseOver={() => setters.handleMarkerHover(index)}
-                        onMouseOut={() => setters.handleMarkerHover(null)}
-                        options={{
-                          clickable: true,
-                          draggable: !state.isDrawing
-                        }}
-                        cursor="pointer"
-                      />
-                    )}
-                    
-                    {/* Red marker for selected point */}
-                    {(state.selectedPoint === index && state.selectedFieldId === field.id) && (
-                      <Marker
-                        position={point}
-                        draggable={true}
-                        icon={{
-                          path: MARKER_PATH,
-                          fillColor: '#FF0000',
-                          fillOpacity: 1,
-                          strokeWeight: 1,
-                          strokeColor: '#000000',
-                          scale: 1.2,
-                          rotation: 180,
-                          anchor: new google.maps.Point(0, 0),
-                        }}
-                        onDragStart={(e) => handleMarkerDragStart(e, index, field.id)}
-                        onDragEnd={() => setters.handleMovementEnd()}
-                        onDrag={handleMarkerDrag}
-                        options={{
-                          clickable: true,
-                          draggable: true
-                        }}
-                        cursor="move"
-                        zIndex={1000}
-                      />
-                    )}
-
-                    <CornerLabel
+              {/* Add corner labels and markers for current field */}
+              {state.currentField.points.map((point, index) => (
+                <React.Fragment key={`current-${index}`}>
+                  {/* Regular marker */}
+                  {!(state.selectedPoint === index && state.selectedFieldId === null) && mapLoaded && (
+                    <Marker
                       position={point}
-                      text={String.fromCharCode(65 + index)}
-                    />
-                  </React.Fragment>
-                ))}
-              </React.Fragment>
-            ))}
-
-            {/* Render current field */}
-            {state.currentField && (
-              <React.Fragment>
-                {state.currentField.points.length >= 3 && (
-                  !state.isMovingPoint || state.selectedFieldId !== null ? (
-                    <Polygon
-                      paths={state.currentField.points}
-                      options={{
-                        fillColor: '#00ff00',
-                        fillOpacity: 0.3,
-                        strokeColor: '#00ff00',
-                        strokeWeight: 2,
-                        editable: !state.isDrawing,
-                        draggable: !state.isDrawing,
+                      draggable={!state.isDrawing}
+                      icon={getRegularMarkerIcon(state.hoveredPoint === index)}
+                      onClick={(e) => {
+                        e.domEvent.stopPropagation();
+                        handleMarkerClick(index, null);
                       }}
-                    />
-                  ) : (
-                    <Polygon
-                      paths={state.tempPoints}
+                      onMouseOver={() => setters.handleMarkerHover(index)}
+                      onMouseOut={() => setters.handleMarkerHover(null)}
                       options={{
-                        fillColor: '#00ff00',
-                        fillOpacity: 0.3,
-                        strokeColor: '#00ff00',
-                        strokeWeight: 2,
-                        editable: false,
-                        draggable: false,
+                        clickable: true,
+                        draggable: !state.isDrawing
                       }}
+                      cursor="pointer"
                     />
-                  )
-                )}
+                  )}
 
-                {/* Add measurement labels for current field */}
-                {state.currentField?.points.length >= 2 && (
-                  (state.isMovingPoint && state.selectedFieldId === null ? state.tempPoints : state.currentField?.points)?.map((point, index) => {
-                    const points = state.isMovingPoint && state.selectedFieldId === null ? state.tempPoints : state.currentField?.points;
-                    if (!points) return null;
-                    const nextPoint = points[(index + 1) % points.length];
-                    const midpoint = calculations.calculateMidpoint(point, nextPoint);
-                    const length = state.currentField?.measurements[index]?.length || 0;
-                    const isEditing = state.editingMeasurement?.fieldId === null && state.editingMeasurement?.index === index;
-                    
-                    return (
-                      <MeasurementLabel
-                        key={`measurement-current-${index}`}
-                        position={midpoint}
-                        text={calculations.formatLength(length)}
-                        isEditing={isEditing}
-                        onEditStart={() => setters.setEditingMeasurement({ fieldId: null, index })}
-                        onLengthChange={handleLengthChange}
-                        onCancel={() => setters.setEditingMeasurement(null)}
-                      />
-                    );
-                  })
-                )}
-
-                {/* Add corner labels and markers for current field */}
-                {state.currentField.points.map((point, index) => (
-                  <React.Fragment key={`current-${index}`}>
-                    {/* Regular marker */}
-                    {!(state.selectedPoint === index && state.selectedFieldId === null) && (
-                      <Marker
-                        position={point}
-                        draggable={!state.isDrawing}
-                        icon={{
-                          path: google.maps.SymbolPath.CIRCLE,
-                          scale: 8,
-                          fillColor: state.hoveredPoint === index ? '#FFFFFF' : '#00ff00',
-                          fillOpacity: 1,
-                          strokeWeight: 2,
-                          strokeColor: '#000000',
-                        }}
-                        onClick={(e) => {
-                          e.domEvent.stopPropagation();
-                          handleMarkerClick(index, null);
-                        }}
-                        onMouseOver={() => setters.handleMarkerHover(index)}
-                        onMouseOut={() => setters.handleMarkerHover(null)}
-                        options={{
-                          clickable: true,
-                          draggable: !state.isDrawing
-                        }}
-                        cursor="pointer"
-                      />
-                    )}
-
-                    {/* Red marker for selected point */}
-                    {(state.selectedPoint === index && state.selectedFieldId === null) && (
-                      <Marker
-                        position={point}
-                        draggable={true}
-                        icon={{
-                          path: MARKER_PATH,
-                          fillColor: '#FF0000',
-                          fillOpacity: 1,
-                          strokeWeight: 1,
-                          strokeColor: '#000000',
-                          scale: 1.2,
-                          rotation: 180,
-                          anchor: new google.maps.Point(0, 0),
-                        }}
-                        onDragStart={(e) => handleMarkerDragStart(e, index, null)}
-                        onDragEnd={() => setters.handleMovementEnd()}
-                        onDrag={handleMarkerDrag}
-                        options={{
-                          clickable: true,
-                          draggable: true
-                        }}
-                        cursor="move"
-                        zIndex={1000}
-                      />
-                    )}
-
-                    <CornerLabel
+                  {/* Red marker for selected point */}
+                  {(state.selectedPoint === index && state.selectedFieldId === null) && state.currentField && mapLoaded && (
+                    <Marker
                       position={point}
-                      text={String.fromCharCode(65 + index)}
+                      draggable={true}
+                      icon={getSelectedMarkerIcon()}
+                      onDragStart={(e) => state.currentField && setters.handleMovementStart(index, null, state.currentField.points)}
+                      onDragEnd={() => setters.handleMovementEnd()}
+                      onDrag={(e) => setters.handleMarkerDrag(e, index, null)}
+                      options={{
+                        clickable: true,
+                        draggable: true
+                      }}
+                      cursor="move"
+                      zIndex={1000}
                     />
-                  </React.Fragment>
-                ))}
+                  )}
 
-                {/* Line for 2 points in current field */}
-                {state.currentField.points.length === 2 && (
-                  <Polyline
-                    path={state.currentField.points}
-                    options={{
-                      strokeColor: '#00ff00',
-                      strokeWeight: 2,
-                      strokeOpacity: 1,
-                    }}
+                  <CornerLabel
+                    position={point}
+                    text={String.fromCharCode(65 + index)}
                   />
-                )}
-              </React.Fragment>
-            )}
+                </React.Fragment>
+              ))}
 
-            {/* User location marker and accuracy circle */}
-            {state.userLocation && (
-              <>
-                <Marker
-                  position={state.userLocation}
-                  icon={{
-                    path: google.maps.SymbolPath.CIRCLE,
-                    scale: 12,
-                    fillColor: '#4285F4',
-                    fillOpacity: 1,
-                    strokeColor: '#FFFFFF',
-                    strokeWeight: 2,
-                  }}
-                  zIndex={1000}
-                />
-                <Circle
-                  center={state.userLocation}
-                  radius={20}
+              {/* Line for 2 points in current field */}
+              {state.currentField.points.length === 2 && (
+                <Polyline
+                  path={state.currentField.points}
                   options={{
-                    fillColor: '#4285F4',
-                    fillOpacity: 0.2,
-                    strokeColor: '#4285F4',
-                    strokeOpacity: 0.5,
-                    strokeWeight: 1,
+                    strokeColor: '#00ff00',
+                    strokeWeight: 2,
+                    strokeOpacity: 1,
                   }}
                 />
-              </>
-            )}
-          </GoogleMap>
+              )}
+            </React.Fragment>
+          )}
+
+          {/* User location marker and accuracy circle */}
+          {state.userLocation && mapLoaded && (
+            <>
+              <Marker
+                position={state.userLocation}
+                icon={getRegularMarkerIcon(false, '#4285F4')}
+                zIndex={1000}
+              />
+              <Circle
+                center={state.userLocation}
+                radius={20}
+                options={{
+                  fillColor: '#4285F4',
+                  fillOpacity: 0.2,
+                  strokeColor: '#4285F4',
+                  strokeOpacity: 0.5,
+                  strokeWeight: 1,
+                }}
+              />
+            </>
+          )}
+        </GoogleMap>
+
+        <div className="absolute top-4 right-4 flex gap-2">
+          <Link
+            href="/saved-maps"
+            className="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded shadow-lg"
+          >
+            Saved Maps
+          </Link>
+          <button
+            onClick={() => setShowSaveDialog(true)}
+            className="bg-green-500 hover:bg-green-700 text-white font-bold py-2 px-4 rounded shadow-lg"
+            disabled={!state.currentField && state.fields.length === 0}
+          >
+            Save Map
+          </button>
         </div>
-
-        <MapControls
-          currentMapType={state.mapType}
-          onMapTypeChange={setters.setMapType}
-          onLocationClick={handleLocationClick}
-          onToggleFullscreen={handleToggleFullscreen}
-          isLocating={state.isLocating}
-        />
-
-        <CreateMenu
-          showMenu={state.showCreateMenu}
-          onToggleMenu={() => setters.setShowCreateMenu(!state.showCreateMenu)}
-          onOptionSelect={handleCreateOption}
-        />
-
-        <ZoomControls
-          onZoomIn={handleZoomIn}
-          onZoomOut={handleZoomOut}
-        />
-
-        {state.area > 0 && (
-          <FieldMeasurements
-            area={state.area}
-            perimeter={state.perimeter}
-            measurements={state.measurements}
-          />
-        )}
       </div>
-    </LoadScript>
+
+      <MapControls
+        currentMapType={state.mapType}
+        onMapTypeChange={setters.setMapType}
+        onLocationClick={handleLocationClick}
+        onToggleFullscreen={handleToggleFullscreen}
+        onClearFields={setters.clearSavedFields}
+        isLocating={state.isLocating}
+      />
+
+      <CreateMenu
+        showMenu={state.showCreateMenu}
+        onToggleMenu={() => setters.setShowCreateMenu(!state.showCreateMenu)}
+        onOptionSelect={handleCreateOption}
+      />
+
+      <ZoomControls
+        onZoomIn={handleZoomIn}
+        onZoomOut={handleZoomOut}
+      />
+
+      {state.area > 0 && (
+        <FieldMeasurements
+          area={state.area}
+          perimeter={state.perimeter}
+          measurements={state.measurements}
+        />
+      )}
+
+      <SaveDialog
+        isOpen={showSaveDialog}
+        onClose={() => setShowSaveDialog(false)}
+        onSave={handleSave}
+      />
+    </div>
   );
 };
 
