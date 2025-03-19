@@ -48,7 +48,7 @@ const MeasurementLabel: React.FC<MeasurementLabelProps> = ({
         className="measurement-label"
         style={{
           position: 'absolute',
-          transform: 'translate(-50%, -50%)',
+          transform: 'translate(-50%, -150%)',
           backgroundColor: isKilometers ? '#ff0000' : '#ffffff',
           padding: '4px',
           width: '56px',

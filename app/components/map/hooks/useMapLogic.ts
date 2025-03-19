@@ -5,6 +5,11 @@ import { Field, PolygonPoint } from '../types';
 
 const STORAGE_KEY = 'savedFields';
 
+interface HistoryState {
+  fields: Field[];
+  currentField: Field | null;
+}
+
 export const useMapLogic = () => {
   const [isDrawing, setIsDrawing] = useState(false);
   const [fields, setFields] = useState<Field[]>([]);
@@ -17,7 +22,7 @@ export const useMapLogic = () => {
   const [measurements, setMeasurements] = useState<{ length: number; width: number; }[]>([]);
   const [selectedPoint, setSelectedPoint] = useState<number | null>(null);
   const [selectedFieldId, setSelectedFieldId] = useState<string | null>(null);
-  const [hoveredPoint, setHoveredPoint] = useState<number | null>(null);
+  const [hoveredPoint, setHoveredPoint] = useState<number | string | null>(null);
   const [isDraggingMarker, setIsDraggingMarker] = useState(false);
   const [tempPoints, setTempPoints] = useState<PolygonPoint[]>([]);
   const [isMovingPoint, setIsMovingPoint] = useState(false);
@@ -27,7 +32,7 @@ export const useMapLogic = () => {
   const [map, setMap] = useState<google.maps.Map | null>(null);
 
   // Add refs for hover state to prevent re-renders
-  const hoveredPointRef = useRef<number | null>(null);
+  const hoveredPointRef = useRef<number | string | null>(null);
   const isMovingRef = useRef(false);
 
   // Add ref for tracking drag state
@@ -49,6 +54,14 @@ export const useMapLogic = () => {
   // Store current points in ref for immediate access
   const currentPointsRef = useRef<PolygonPoint[]>([]);
   const fieldIdRef = useRef<string | null>(null);
+
+  // Add history management
+  const [history, setHistory] = useState<HistoryState[]>([]);
+  const [historyIndex, setHistoryIndex] = useState(-1);
+  const [shouldSaveToHistory, setShouldSaveToHistory] = useState(false);
+
+  // Add state for midpoints
+  const [midpoints, setMidpoints] = useState<{[key: string]: PolygonPoint[]}>({});
 
   // Load saved fields from localStorage on initial load
   useEffect(() => {
@@ -84,60 +97,67 @@ export const useMapLogic = () => {
     }
   }, []);
 
-  // State object for easy access
-  const state = {
-    isDrawing,
-    fields,
-    currentField,
-    area,
-    showCreateMenu,
-    mapType,
-    isFullscreen,
-    perimeter,
-    measurements,
-    selectedPoint,
-    selectedFieldId,
-    hoveredPoint,
-    isDraggingMarker,
-    tempPoints,
-    isMovingPoint,
-    userLocation,
-    isLocating,
-    editingMeasurement,
-    map
-  };
+  // Add function to save state to history
+  const saveToHistory = useCallback(() => {
+    if (!shouldSaveToHistory) return;
 
-  // Modify handleCreateOption to save field when completed
-  const handleCreateOption = useCallback((option: 'import' | 'field' | 'distance' | 'marker') => {
-    if (option === 'field') {
-      // If there's a current field with points, save it
-      if (state.currentField?.points.length) {
-        const finalField = {
-          ...state.currentField,
-          id: Date.now().toString()
-        };
-        setFields(prev => {
-          const newFields = [...prev, finalField];
-          // Save to localStorage
-          try {
-            localStorage.setItem(STORAGE_KEY, JSON.stringify(newFields));
-          } catch (error) {
-            console.error('Error saving fields:', error);
-          }
-          return newFields;
-        });
-      }
-      // Start new field
-      setCurrentField({
-        id: Date.now().toString(),
-        points: [],
-        area: 0,
-        perimeter: 0,
-        measurements: []
-      });
-      setIsDrawing(true);
+    const currentState: HistoryState = {
+      fields: fields,
+      currentField: currentField
+    };
+
+    // Remove any future states if we're not at the end of history
+    const newHistory = history.slice(0, historyIndex + 1);
+    setHistory([...newHistory, currentState]);
+    setHistoryIndex(prev => prev + 1);
+    setShouldSaveToHistory(false);
+  }, [fields, currentField, history, historyIndex, shouldSaveToHistory]);
+
+  // Add undo function
+  const undo = useCallback(() => {
+    if (historyIndex > 0) {
+      const previousState = history[historyIndex - 1];
+      setFields(previousState.fields);
+      setCurrentField(previousState.currentField);
+      setHistoryIndex(prev => prev - 1);
+      setShouldSaveToHistory(false);
     }
-  }, [state]);
+  }, [history, historyIndex]);
+
+  // Add redo function
+  const redo = useCallback(() => {
+    if (historyIndex < history.length - 1) {
+      const nextState = history[historyIndex + 1];
+      setFields(nextState.fields);
+      setCurrentField(nextState.currentField);
+      setHistoryIndex(prev => prev + 1);
+      setShouldSaveToHistory(false);
+    }
+  }, [history, historyIndex]);
+
+  // Save initial state
+  useEffect(() => {
+    if (history.length === 0) {
+      const initialState: HistoryState = {
+        fields: fields,
+        currentField: currentField
+      };
+      setHistory([initialState]);
+      setHistoryIndex(0);
+    }
+  }, []);
+
+  // Watch for changes that should be saved to history
+  useEffect(() => {
+    setShouldSaveToHistory(true);
+  }, [fields, currentField?.points]);
+
+  // Save state to history when needed
+  useEffect(() => {
+    if (shouldSaveToHistory) {
+      saveToHistory();
+    }
+  }, [shouldSaveToHistory, saveToHistory]);
 
   // Calculate area
   const calculateArea = useCallback((polygonPoints: PolygonPoint[]) => {
@@ -176,6 +196,158 @@ export const useMapLogic = () => {
       lng: (point1.lng + point2.lng) / 2,
     };
   }, []);
+
+  // Function to update midpoints for a field
+  const updateMidpoints = useCallback((points: PolygonPoint[], fieldId: string | null) => {
+    if (points.length < 2) return [];
+    
+    const newMidpoints: PolygonPoint[] = [];
+    for (let i = 0; i < points.length; i++) {
+      const point1 = points[i];
+      const point2 = points[(i + 1) % points.length];
+      const midpoint = calculateMidpoint(point1, point2);
+      newMidpoints.push(midpoint);
+    }
+    
+    if (fieldId) {
+      setMidpoints(prev => ({
+        ...prev,
+        [fieldId]: newMidpoints
+      }));
+    } else {
+      setMidpoints(prev => ({
+        ...prev,
+        current: newMidpoints
+      }));
+    }
+    
+    return newMidpoints;
+  }, [calculateMidpoint]);
+
+  // Update midpoints when points change
+  useEffect(() => {
+    if (currentField?.points?.length && currentField.points.length >= 2) {
+      updateMidpoints(currentField.points, null);
+    }
+  }, [currentField?.points, updateMidpoints]);
+
+  useEffect(() => {
+    fields.forEach(field => {
+      if (field.points.length >= 2) {
+        updateMidpoints(field.points, field.id);
+      }
+    });
+  }, [fields, updateMidpoints]);
+
+  // Handle midpoint drag
+  const handleMidpointDrag = useCallback((e: google.maps.MapMouseEvent, index: number, fieldId: string | null) => {
+    if (!e.latLng) return;
+    
+    const points = fieldId ? 
+      fields.find(f => f.id === fieldId)?.points : 
+      currentField?.points;
+
+    if (!points) return;
+
+    // Insert new point at the dragged midpoint position
+    const newPoint = {
+      lat: e.latLng.lat(),
+      lng: e.latLng.lng()
+    };
+
+    const newPoints = [...points];
+    newPoints.splice(index + 1, 0, newPoint);
+
+    // Update the field with new points
+    if (fieldId) {
+      setFields(prev => prev.map(field => {
+        if (field.id === fieldId) {
+          const newArea = calculateArea(newPoints);
+          const { totalDistance, lineMeasurements } = calculatePerimeter(newPoints);
+          return {
+            ...field,
+            points: newPoints,
+            area: newArea,
+            perimeter: totalDistance,
+            measurements: lineMeasurements
+          };
+        }
+        return field;
+      }));
+    } else if (currentField) {
+      const newArea = calculateArea(newPoints);
+      const { totalDistance, lineMeasurements } = calculatePerimeter(newPoints);
+      setCurrentField({
+        ...currentField,
+        points: newPoints,
+        area: newArea,
+        perimeter: totalDistance,
+        measurements: lineMeasurements
+      });
+    }
+
+    // Update midpoints after adding new point
+    updateMidpoints(newPoints, fieldId);
+    setShouldSaveToHistory(true);
+  }, [fields, currentField, calculateArea, calculatePerimeter, updateMidpoints]);
+
+  // State object for easy access
+  const state = {
+    isDrawing,
+    fields,
+    currentField,
+    area,
+    showCreateMenu,
+    mapType,
+    isFullscreen,
+    perimeter,
+    measurements,
+    selectedPoint,
+    selectedFieldId,
+    hoveredPoint,
+    isDraggingMarker,
+    tempPoints,
+    isMovingPoint,
+    userLocation,
+    isLocating,
+    editingMeasurement,
+    map,
+    canUndo: historyIndex > 0,
+    canRedo: historyIndex < history.length - 1,
+    midpoints
+  };
+
+  // Modify handleCreateOption to save field when completed
+  const handleCreateOption = useCallback((option: 'import' | 'field' | 'distance' | 'marker') => {
+    if (option === 'field') {
+      // If there's a current field with points, save it
+      if (state.currentField?.points.length) {
+        const finalField = {
+          ...state.currentField,
+          id: Date.now().toString()
+        };
+        setFields(prev => {
+          const newFields = [...prev, finalField];
+          // Save to localStorage
+          try {
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(newFields));
+          } catch (error) {
+            console.error('Error saving fields:', error);
+          }
+          return newFields;
+        });
+      }
+      // Start new field
+      setCurrentField({
+        id: Date.now().toString(),
+        points: [],
+        area: 0,
+        perimeter: 0,
+        measurements: []
+      });
+      setIsDrawing(true);
+    }
+  }, [state]);
 
   // Format length
   const formatLength = useCallback((meters: number): string => {
@@ -216,7 +388,7 @@ export const useMapLogic = () => {
   }, []);
 
   // Memoize hover handlers
-  const handleMarkerHover = useCallback((index: number | null) => {
+  const handleMarkerHover = useCallback((index: number | string | null) => {
     hoveredPointRef.current = index;
     // Only update state if we're not moving a point to prevent re-renders during drag
     if (!isMovingRef.current) {
@@ -262,6 +434,7 @@ export const useMapLogic = () => {
           return field;
         })
       );
+      setShouldSaveToHistory(true);
     } else if (currentField) {
       const newArea = calculateArea(newPoints);
       const { totalDistance, lineMeasurements } = calculatePerimeter(newPoints);
@@ -272,6 +445,7 @@ export const useMapLogic = () => {
         perimeter: totalDistance,
         measurements: lineMeasurements
       });
+      setShouldSaveToHistory(true);
     }
   }, [fields, currentField, calculateArea, calculatePerimeter, setFields, setCurrentField, setTempPoints]);
 
@@ -334,14 +508,20 @@ export const useMapLogic = () => {
     handleMovementEnd,
     handleMarkerDrag,
     clearSavedFields,
-    handleCreateOption
+    handleCreateOption,
+    undo,
+    redo,
+    handleMidpointDrag
   }), [
     handleMarkerHover,
     handleMovementStart,
     handleMovementEnd,
     handleMarkerDrag,
     clearSavedFields,
-    handleCreateOption
+    handleCreateOption,
+    undo,
+    redo,
+    handleMidpointDrag
   ]);
 
   return {

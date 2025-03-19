@@ -321,6 +321,43 @@ const MapComponent = ({ onAreaUpdate }: MapComponentProps) => {
     setters.setEditingMeasurement(null);
   }, [state.editingMeasurement, state.currentField, calculations, setters]);
 
+  // Add handler for midpoint drag
+  const handleMidpointDrag = useCallback((e: google.maps.MapMouseEvent, index: number, fieldId: string | null) => {
+    if (!e.latLng) return;
+    
+    const points = fieldId ? 
+      state.fields.find(f => f.id === fieldId)?.points : 
+      state.currentField?.points;
+
+    if (!points) return;
+
+    const newPoint = {
+      lat: e.latLng.lat(),
+      lng: e.latLng.lng()
+    };
+
+    if (fieldId) {
+      setters.setFields(prev => prev.map(field => {
+        if (field.id === fieldId) {
+          const newPoints = [...field.points];
+          newPoints.splice(index + 1, 0, newPoint);
+          return {
+            ...field,
+            points: newPoints
+          };
+        }
+        return field;
+      }));
+    } else if (state.currentField) {
+      const newPoints = [...state.currentField.points];
+      newPoints.splice(index + 1, 0, newPoint);
+      setters.setCurrentField({
+        ...state.currentField,
+        points: newPoints
+      });
+    }
+  }, [state.fields, state.currentField, setters]);
+
   // Client-side effect
   useEffect(() => {
     setIsClient(true);
@@ -434,8 +471,7 @@ const MapComponent = ({ onAreaUpdate }: MapComponentProps) => {
               />
 
               {/* Add measurement labels for each line */}
-              {(state.isMovingPoint && state.selectedFieldId === field.id ? state.tempPoints : field.points).map((point, index) => {
-                const points = state.isMovingPoint && state.selectedFieldId === field.id ? state.tempPoints : field.points;
+              {(state.isMovingPoint && state.selectedFieldId === field.id ? state.tempPoints : field.points).map((point, index, points) => {
                 const nextPoint = points[(index + 1) % points.length];
                 const midpoint = calculations.calculateMidpoint(point, nextPoint);
                 const length = field.measurements[index]?.length || 0;
@@ -455,47 +491,107 @@ const MapComponent = ({ onAreaUpdate }: MapComponentProps) => {
               })}
 
               {/* Add corner labels and markers */}
-              {(state.isMovingPoint && state.selectedFieldId === field.id ? state.tempPoints : field.points).map((point, index) => (
-                <React.Fragment key={`${field.id}-${index}`}>
-                  {/* Regular marker */}
-                  {!(state.selectedPoint === index && state.selectedFieldId === field.id) && mapLoaded && (
-                    <Marker
-                      position={point}
-                      draggable={!state.isDrawing}
-                      icon={getRegularMarkerIcon(state.hoveredPoint === index)}
-                      onClick={(e) => {
-                        e.domEvent.stopPropagation();
-                        handleMarkerClick(index, field.id);
-                      }}
-                      onMouseOver={() => setters.handleMarkerHover(index)}
-                      onMouseOut={() => setters.handleMarkerHover(null)}
-                      options={{
-                        clickable: true,
-                        draggable: !state.isDrawing
-                      }}
-                      cursor="pointer"
-                      zIndex={2}
-                    />
-                  )}
-                  
-                  {/* Red marker for selected point */}
-                  {(state.selectedPoint === index && state.selectedFieldId === field.id) && mapLoaded && (
-                    <Marker
-                      position={point}
-                      draggable={true}
-                      icon={getSelectedMarkerIcon()}
-                      onDragStart={(e) => handleMarkerDragStart(e, index, field.id)}
-                      onDragEnd={() => setters.handleMovementEnd()}
-                      onDrag={handleMarkerDrag}
-                      options={{
-                        clickable: true,
-                        draggable: true
-                      }}
-                      cursor="move"
-                      zIndex={3}
-                    />
-                  )}
-                </React.Fragment>
+              {(state.isMovingPoint && state.selectedFieldId === field.id ? state.tempPoints : field.points).map((point, index, points) => {
+                const nextPoint = points[(index + 1) % points.length];
+                const midpoint = calculations.calculateMidpoint(point, nextPoint);
+                
+                return (
+                  <React.Fragment key={`${field.id}-${index}`}>
+                    {/* Regular marker */}
+                    {!(state.selectedPoint === index && state.selectedFieldId === field.id) && mapLoaded && (
+                      <Marker
+                        position={point}
+                        draggable={!state.isDrawing}
+                        icon={getRegularMarkerIcon(state.hoveredPoint === index)}
+                        onClick={(e) => {
+                          e.domEvent.stopPropagation();
+                          handleMarkerClick(index, field.id);
+                        }}
+                        onMouseOver={() => setters.handleMarkerHover(index)}
+                        onMouseOut={() => setters.handleMarkerHover(null)}
+                        options={{
+                          clickable: true,
+                          draggable: !state.isDrawing
+                        }}
+                        cursor="pointer"
+                        zIndex={2}
+                      />
+                    )}
+                    
+                    {/* Red marker for selected point */}
+                    {(state.selectedPoint === index && state.selectedFieldId === field.id) && mapLoaded && (
+                      <Marker
+                        position={point}
+                        draggable={true}
+                        icon={getSelectedMarkerIcon()}
+                        onDragStart={(e) => handleMarkerDragStart(e, index, field.id)}
+                        onDragEnd={() => setters.handleMovementEnd()}
+                        onDrag={handleMarkerDrag}
+                        options={{
+                          clickable: true,
+                          draggable: true
+                        }}
+                        cursor="move"
+                        zIndex={3}
+                      />
+                    )}
+
+                    {/* Add midpoint marker */}
+                    {mapLoaded && index < points.length - 1 && (
+                      <Marker
+                        position={midpoint}
+                        draggable={!state.isDrawing}
+                        icon={{
+                          path: window.google.maps.SymbolPath.CIRCLE,
+                          scale: 6,
+                          fillColor: state.hoveredPoint === `mid-${index}` ? '#FFFFFF' : '#FFA500',
+                          fillOpacity: 1,
+                          strokeWeight: 2,
+                          strokeColor: '#000000',
+                        }}
+                        onClick={(e) => {
+                          e.domEvent.stopPropagation();
+                          handleMarkerClick(index, field.id);
+                        }}
+                        onMouseOver={() => setters.handleMarkerHover(`mid-${index}`)}
+                        onMouseOut={() => setters.handleMarkerHover(null)}
+                        onDragStart={(e) => handleMarkerDragStart(e, index, field.id)}
+                        onDragEnd={() => setters.handleMovementEnd()}
+                        onDrag={handleMarkerDrag}
+                        options={{
+                          clickable: true,
+                          draggable: !state.isDrawing
+                        }}
+                        cursor="pointer"
+                        zIndex={2}
+                      />
+                    )}
+                  </React.Fragment>
+                );
+              })}
+
+              {/* Add midpoint markers */}
+              {mapLoaded && state.midpoints[field.id]?.map((midpoint, index) => (
+                <Marker
+                  key={`midpoint-${field.id}-${index}`}
+                  position={midpoint}
+                  draggable={!state.isDrawing}
+                  icon={{
+                    path: window.google.maps.SymbolPath.CIRCLE,
+                    scale: 5,
+                    fillColor: '#FFA500',
+                    fillOpacity: 1,
+                    strokeWeight: 2,
+                    strokeColor: '#000000',
+                  }}
+                  onDragEnd={(e) => setters.handleMidpointDrag(e, index, field.id)}
+                  options={{
+                    clickable: true,
+                    draggable: !state.isDrawing
+                  }}
+                  cursor="pointer"
+                  zIndex={2}
+                />
               ))}
             </React.Fragment>
           ))}
@@ -521,8 +617,8 @@ const MapComponent = ({ onAreaUpdate }: MapComponentProps) => {
               {/* Add measurement labels for current field */}
               {state.currentField?.points.length >= 2 && (
                 (state.isMovingPoint && state.selectedFieldId === null ? state.tempPoints : state.currentField?.points)?.map((point, index) => {
-                  const points = state.isMovingPoint && state.selectedFieldId === null ? state.tempPoints : state.currentField?.points;
-                  if (!points) return null;
+                  if (!state.currentField) return null;
+                  const points = state.currentField.points;
                   const nextPoint = points[(index + 1) % points.length];
                   const midpoint = calculations.calculateMidpoint(point, nextPoint);
                   const length = state.currentField?.measurements[index]?.length || 0;
@@ -543,52 +639,90 @@ const MapComponent = ({ onAreaUpdate }: MapComponentProps) => {
               )}
 
               {/* Add corner labels and markers for current field */}
-              {state.currentField.points.map((point, index) => (
-                <React.Fragment key={`current-${index}`}>
-                  {/* Regular marker */}
-                  {!(state.selectedPoint === index && state.selectedFieldId === null) && mapLoaded && (
-                    <Marker
-                      position={point}
-                      draggable={!state.isDrawing}
-                      icon={getRegularMarkerIcon(state.hoveredPoint === index)}
-                      onClick={(e) => {
-                        e.domEvent.stopPropagation();
-                        handleMarkerClick(index, null);
-                      }}
-                      onMouseOver={() => setters.handleMarkerHover(index)}
-                      onMouseOut={() => setters.handleMarkerHover(null)}
-                      options={{
-                        clickable: true,
-                        draggable: !state.isDrawing
-                      }}
-                      cursor="pointer"
-                    />
-                  )}
+              {state.currentField.points.map((point, index) => {
+                if (!state.currentField) return null;
+                const points = state.currentField.points;
+                const nextPoint = points[(index + 1) % points.length];
+                const midpoint = calculations.calculateMidpoint(point, nextPoint);
 
-                  {/* Red marker for selected point */}
-                  {(state.selectedPoint === index && state.selectedFieldId === null) && state.currentField && mapLoaded && (
-                    <Marker
-                      position={point}
-                      draggable={true}
-                      icon={getSelectedMarkerIcon()}
-                      onDragStart={(e) => state.currentField && setters.handleMovementStart(index, null, state.currentField.points)}
-                      onDragEnd={() => setters.handleMovementEnd()}
-                      onDrag={(e) => setters.handleMarkerDrag(e, index, null)}
-                      options={{
-                        clickable: true,
-                        draggable: true
-                      }}
-                      cursor="move"
-                      zIndex={1000}
-                    />
-                  )}
+                return (
+                  <React.Fragment key={`current-${index}`}>
+                    {/* Regular marker */}
+                    {!(state.selectedPoint === index && state.selectedFieldId === null) && mapLoaded && (
+                      <Marker
+                        position={point}
+                        draggable={!state.isDrawing}
+                        icon={getRegularMarkerIcon(state.hoveredPoint === index)}
+                        onClick={(e) => {
+                          e.domEvent.stopPropagation();
+                          handleMarkerClick(index, null);
+                        }}
+                        onMouseOver={() => setters.handleMarkerHover(index)}
+                        onMouseOut={() => setters.handleMarkerHover(null)}
+                        options={{
+                          clickable: true,
+                          draggable: !state.isDrawing
+                        }}
+                        cursor="pointer"
+                      />
+                    )}
 
-                  <CornerLabel
-                    position={point}
-                    text={String.fromCharCode(65 + index)}
-                  />
-                </React.Fragment>
-              ))}
+                    {/* Red marker for selected point */}
+                    {(state.selectedPoint === index && state.selectedFieldId === null) && state.currentField && mapLoaded && (
+                      <Marker
+                        position={point}
+                        draggable={true}
+                        icon={getSelectedMarkerIcon()}
+                        onDragStart={(e) => state.currentField && setters.handleMovementStart(index, null, state.currentField.points)}
+                        onDragEnd={() => setters.handleMovementEnd()}
+                        onDrag={(e) => setters.handleMarkerDrag(e, index, null)}
+                        options={{
+                          clickable: true,
+                          draggable: true
+                        }}
+                        cursor="move"
+                        zIndex={1000}
+                      />
+                    )}
+
+                    <CornerLabel
+                      position={point}
+                      text={String.fromCharCode(65 + index)}
+                    />
+
+                    {/* Add midpoint marker */}
+                    {mapLoaded && state.currentField.points.length > 1 && index < points.length - 1 && (
+                      <Marker
+                        position={midpoint}
+                        draggable={!state.isDrawing}
+                        icon={{
+                          path: window.google.maps.SymbolPath.CIRCLE,
+                          scale: 6,
+                          fillColor: state.hoveredPoint === `mid-${index}` ? '#FFFFFF' : '#FFA500',
+                          fillOpacity: 1,
+                          strokeWeight: 2,
+                          strokeColor: '#000000',
+                        }}
+                        onClick={(e) => {
+                          e.domEvent.stopPropagation();
+                          handleMarkerClick(index, null);
+                        }}
+                        onMouseOver={() => setters.handleMarkerHover(`mid-${index}`)}
+                        onMouseOut={() => setters.handleMarkerHover(null)}
+                        onDragStart={(e) => state.currentField && setters.handleMovementStart(index, null, state.currentField.points)}
+                        onDragEnd={() => setters.handleMovementEnd()}
+                        onDrag={(e) => setters.handleMarkerDrag(e, index, null)}
+                        options={{
+                          clickable: true,
+                          draggable: !state.isDrawing
+                        }}
+                        cursor="pointer"
+                        zIndex={2}
+                      />
+                    )}
+                  </React.Fragment>
+                );
+              })}
 
               {/* Line for 2 points in current field */}
               {state.currentField.points.length === 2 && (
@@ -601,6 +735,30 @@ const MapComponent = ({ onAreaUpdate }: MapComponentProps) => {
                   }}
                 />
               )}
+
+              {/* Add midpoint markers for current field */}
+              {mapLoaded && state.midpoints.current?.map((midpoint, index) => (
+                <Marker
+                  key={`midpoint-current-${index}`}
+                  position={midpoint}
+                  draggable={!state.isDrawing}
+                  icon={{
+                    path: window.google.maps.SymbolPath.CIRCLE,
+                    scale: 5,
+                    fillColor: '#FFA500',
+                    fillOpacity: 1,
+                    strokeWeight: 2,
+                    strokeColor: '#000000',
+                  }}
+                  onDragEnd={(e) => setters.handleMidpointDrag(e, index, null)}
+                  options={{
+                    clickable: true,
+                    draggable: !state.isDrawing
+                  }}
+                  cursor="pointer"
+                  zIndex={2}
+                />
+              ))}
             </React.Fragment>
           )}
 
@@ -628,6 +786,34 @@ const MapComponent = ({ onAreaUpdate }: MapComponentProps) => {
         </GoogleMap>
 
         <div className="absolute top-4 right-4 flex gap-2">
+          <button
+            onClick={setters.undo}
+            disabled={!state.canUndo}
+            className={`p-2 rounded-lg shadow-lg transition-colors ${
+              state.canUndo 
+                ? 'bg-white hover:bg-gray-100 text-gray-800' 
+                : 'bg-gray-200 text-gray-400 cursor-not-allowed'
+            }`}
+            title="Undo"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h10a4 4 0 0 1 4 4v2m-6-6l-4-4m4 4l-4 4" />
+            </svg>
+          </button>
+          <button
+            onClick={setters.redo}
+            disabled={!state.canRedo}
+            className={`p-2 rounded-lg shadow-lg transition-colors ${
+              state.canRedo 
+                ? 'bg-white hover:bg-gray-100 text-gray-800' 
+                : 'bg-gray-200 text-gray-400 cursor-not-allowed'
+            }`}
+            title="Redo"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 10h-10a4 4 0 0 0-4 4v2m6-6l4-4m-4 4l4 4" />
+            </svg>
+          </button>
           <Link
             href="/saved-maps"
             className="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded shadow-lg"
