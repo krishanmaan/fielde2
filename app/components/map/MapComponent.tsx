@@ -886,7 +886,7 @@ const MapComponent = ({ onAreaUpdate }: MapComponentProps) => {
         </div>
 
         {/* Add custom zoom controls */}
-        <div className="absolute bottom-20 right-4 flex flex-col gap-2 hidden">
+        <div className="absolute bottom-20 right-4  flex-col gap-2 hidden">
           <button
             onClick={() => state.map?.setZoom((state.map?.getZoom() || defaultZoom) + 1)}
             className="bg-white p-2 rounded-lg shadow-lg hover:bg-gray-100 transition-colors"
