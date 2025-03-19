@@ -15,7 +15,7 @@ interface FieldMeasurementsProps {
 
 const FieldMeasurements = ({ area, perimeter, measurements }: FieldMeasurementsProps) => {
   return (
-    <div className="absolute top-15 left-3 z-50 flex gap-4 ">
+    <div className="absolute top-15 left-3 z-50  gap-4 hidden ">
       <div className="bg-black bg-opacity-70 text-white px-4 py-2 rounded-lg shadow-lg">
         <div className="text-sm font-medium">Area: {area.toFixed(2)} a</div>
       </div>

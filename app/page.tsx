@@ -28,7 +28,7 @@ const Home: NextPage = () => {
     <main className="min-h-screen" suppressHydrationWarning>
       <MapComponent onAreaUpdate={handleAreaUpdate} />
       {area > 0 && (
-        <div className="fixed bottom-4 right-4 bg-white p-4 rounded-lg shadow-lg">
+        <div className="fixed hidden bottom-4 right-4 bg-white p-4 rounded-lg shadow-lg">
           <p>Total Area: {area.toFixed(2)} hectares</p>
         </div>
       )}
