@@ -163,7 +163,7 @@ export const useMapLogic = () => {
       const newArea = calculateArea(newPoints);
       const { totalDistance, lineMeasurements } = calculatePerimeter(newPoints);
       
-      // Update all states in one batch
+      // Update everything in one batch
       Promise.resolve().then(() => {
         setTempPoints(newPoints);
         setFields(prevFields => 
@@ -185,7 +185,7 @@ export const useMapLogic = () => {
       const newArea = calculateArea(newPoints);
       const { totalDistance, lineMeasurements } = calculatePerimeter(newPoints);
       
-      // Update all states in one batch
+      // Update everything in one batch
       Promise.resolve().then(() => {
         setTempPoints(newPoints);
         setCurrentField({
