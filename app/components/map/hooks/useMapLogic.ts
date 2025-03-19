@@ -60,9 +60,6 @@ export const useMapLogic = () => {
   const [historyIndex, setHistoryIndex] = useState(-1);
   const [shouldSaveToHistory, setShouldSaveToHistory] = useState(false);
 
-  // Add state for midpoints
-  const [midpoints, setMidpoints] = useState<{[key: string]: PolygonPoint[]}>({});
-
   // Load saved fields from localStorage on initial load
   useEffect(() => {
     try {
@@ -102,8 +99,8 @@ export const useMapLogic = () => {
     if (!shouldSaveToHistory) return;
 
     const currentState: HistoryState = {
-      fields: fields,
-      currentField: currentField
+      fields,
+      currentField
     };
 
     // Remove any future states if we're not at the end of history
@@ -121,6 +118,13 @@ export const useMapLogic = () => {
       setCurrentField(previousState.currentField);
       setHistoryIndex(prev => prev - 1);
       setShouldSaveToHistory(false);
+      
+      // Reset movement states
+      setTempPoints([]);
+      setSelectedPoint(null);
+      setSelectedFieldId(null);
+      setIsMovingPoint(false);
+      setHoveredPoint(null);
     }
   }, [history, historyIndex]);
 
@@ -132,6 +136,13 @@ export const useMapLogic = () => {
       setCurrentField(nextState.currentField);
       setHistoryIndex(prev => prev + 1);
       setShouldSaveToHistory(false);
+      
+      // Reset movement states
+      setTempPoints([]);
+      setSelectedPoint(null);
+      setSelectedFieldId(null);
+      setIsMovingPoint(false);
+      setHoveredPoint(null);
     }
   }, [history, historyIndex]);
 
@@ -139,8 +150,8 @@ export const useMapLogic = () => {
   useEffect(() => {
     if (history.length === 0) {
       const initialState: HistoryState = {
-        fields: fields,
-        currentField: currentField
+        fields,
+        currentField
       };
       setHistory([initialState]);
       setHistoryIndex(0);
@@ -197,100 +208,6 @@ export const useMapLogic = () => {
     };
   }, []);
 
-  // Function to update midpoints for a field
-  const updateMidpoints = useCallback((points: PolygonPoint[], fieldId: string | null) => {
-    if (points.length < 2) return [];
-    
-    const newMidpoints: PolygonPoint[] = [];
-    for (let i = 0; i < points.length; i++) {
-      const point1 = points[i];
-      const point2 = points[(i + 1) % points.length];
-      const midpoint = calculateMidpoint(point1, point2);
-      newMidpoints.push(midpoint);
-    }
-    
-    if (fieldId) {
-      setMidpoints(prev => ({
-        ...prev,
-        [fieldId]: newMidpoints
-      }));
-    } else {
-      setMidpoints(prev => ({
-        ...prev,
-        current: newMidpoints
-      }));
-    }
-    
-    return newMidpoints;
-  }, [calculateMidpoint]);
-
-  // Update midpoints when points change
-  useEffect(() => {
-    if (currentField?.points?.length && currentField.points.length >= 2) {
-      updateMidpoints(currentField.points, null);
-    }
-  }, [currentField?.points, updateMidpoints]);
-
-  useEffect(() => {
-    fields.forEach(field => {
-      if (field.points.length >= 2) {
-        updateMidpoints(field.points, field.id);
-      }
-    });
-  }, [fields, updateMidpoints]);
-
-  // Handle midpoint drag
-  const handleMidpointDrag = useCallback((e: google.maps.MapMouseEvent, index: number, fieldId: string | null) => {
-    if (!e.latLng) return;
-    
-    const points = fieldId ? 
-      fields.find(f => f.id === fieldId)?.points : 
-      currentField?.points;
-
-    if (!points) return;
-
-    // Insert new point at the dragged midpoint position
-    const newPoint = {
-      lat: e.latLng.lat(),
-      lng: e.latLng.lng()
-    };
-
-    const newPoints = [...points];
-    newPoints.splice(index + 1, 0, newPoint);
-
-    // Update the field with new points
-    if (fieldId) {
-      setFields(prev => prev.map(field => {
-        if (field.id === fieldId) {
-          const newArea = calculateArea(newPoints);
-          const { totalDistance, lineMeasurements } = calculatePerimeter(newPoints);
-          return {
-            ...field,
-            points: newPoints,
-            area: newArea,
-            perimeter: totalDistance,
-            measurements: lineMeasurements
-          };
-        }
-        return field;
-      }));
-    } else if (currentField) {
-      const newArea = calculateArea(newPoints);
-      const { totalDistance, lineMeasurements } = calculatePerimeter(newPoints);
-      setCurrentField({
-        ...currentField,
-        points: newPoints,
-        area: newArea,
-        perimeter: totalDistance,
-        measurements: lineMeasurements
-      });
-    }
-
-    // Update midpoints after adding new point
-    updateMidpoints(newPoints, fieldId);
-    setShouldSaveToHistory(true);
-  }, [fields, currentField, calculateArea, calculatePerimeter, updateMidpoints]);
-
   // State object for easy access
   const state = {
     isDrawing,
@@ -313,8 +230,7 @@ export const useMapLogic = () => {
     editingMeasurement,
     map,
     canUndo: historyIndex > 0,
-    canRedo: historyIndex < history.length - 1,
-    midpoints
+    canRedo: historyIndex < history.length - 1
   };
 
   // Modify handleCreateOption to save field when completed
@@ -396,46 +312,35 @@ export const useMapLogic = () => {
     }
   }, []);
 
-  // Direct marker drag handler without throttling
-  const handleMarkerDrag = useCallback((e: google.maps.MapMouseEvent, index: number, fieldId: string | null) => {
+  // Update handleMarkerDrag to also update midpoints
+  const handleMarkerDrag = (e: google.maps.MapMouseEvent, index: number, fieldId: string | null) => {
     if (!e.latLng) return;
 
-    const newLat = e.latLng.lat();
-    const newLng = e.latLng.lng();
-    const newPoint = { lat: newLat, lng: newLng };
+    const newPoint = {
+      lat: e.latLng.lat(),
+      lng: e.latLng.lng()
+    };
 
-    // Get the current points array based on fieldId
-    const currentPoints = fieldId 
-      ? fields.find(f => f.id === fieldId)?.points || []
-      : currentField?.points || [];
-
-    // Create new points array with updated position
-    const newPoints = [...currentPoints];
-    newPoints[index] = newPoint;
-
-    // Update the points immediately
-    setTempPoints(newPoints);
-
-    // Update the field with new points
     if (fieldId) {
-      setFields(prevFields => 
-        prevFields.map(field => {
-          if (field.id === fieldId) {
-            const newArea = calculateArea(newPoints);
-            const { totalDistance, lineMeasurements } = calculatePerimeter(newPoints);
-            return {
-              ...field,
-              points: newPoints,
-              area: newArea,
-              perimeter: totalDistance,
-              measurements: lineMeasurements
-            };
-          }
-          return field;
-        })
-      );
-      setShouldSaveToHistory(true);
+      setFields(prev => prev.map(f => {
+        if (f.id === fieldId) {
+          const newPoints = [...f.points];
+          newPoints[index] = newPoint;
+          const newArea = calculateArea(newPoints);
+          const { totalDistance, lineMeasurements } = calculatePerimeter(newPoints);
+          return {
+            ...f,
+            points: newPoints,
+            area: newArea,
+            perimeter: totalDistance,
+            measurements: lineMeasurements
+          };
+        }
+        return f;
+      }));
     } else if (currentField) {
+      const newPoints = [...currentField.points];
+      newPoints[index] = newPoint;
       const newArea = calculateArea(newPoints);
       const { totalDistance, lineMeasurements } = calculatePerimeter(newPoints);
       setCurrentField({
@@ -445,33 +350,34 @@ export const useMapLogic = () => {
         perimeter: totalDistance,
         measurements: lineMeasurements
       });
-      setShouldSaveToHistory(true);
     }
-  }, [fields, currentField, calculateArea, calculatePerimeter, setFields, setCurrentField, setTempPoints]);
+  };
 
   // Update movement start to initialize points
-  const handleMovementStart = useCallback((index: number, fieldId: string | null, points: PolygonPoint[]) => {
-    setIsMovingPoint(true);
+  const handleMovementStart = (index: number, fieldId: string | null, points: PolygonPoint[]) => {
     setSelectedPoint(index);
     setSelectedFieldId(fieldId);
-    
-    // Initialize tempPoints with current points
+    setIsMovingPoint(true);
     setTempPoints([...points]);
-  }, []);
+    isMovingRef.current = true;
+  };
 
-  // Clear refs on movement end
+  // Handle movement end
   const handleMovementEnd = useCallback(() => {
-    currentPointsRef.current = [];
-    fieldIdRef.current = null;
-    dragStateRef.current = {
-      isDragging: false,
-      originalPoints: [],
-      currentIndex: null,
-      fieldId: null
-    };
+    if (map) {
+      map.setOptions({ 
+        draggable: true,
+        scrollwheel: true,
+        gestureHandling: 'greedy'
+      });
+    }
     setIsMovingPoint(false);
     setSelectedPoint(null);
-  }, []);
+    setSelectedFieldId(null);
+    setHoveredPoint(null);
+    isMovingRef.current = false;
+    setShouldSaveToHistory(true);
+  }, [map]);
 
   // Memoize calculations object
   const calculations = useMemo(() => ({
@@ -510,8 +416,7 @@ export const useMapLogic = () => {
     clearSavedFields,
     handleCreateOption,
     undo,
-    redo,
-    handleMidpointDrag
+    redo
   }), [
     handleMarkerHover,
     handleMovementStart,
@@ -520,8 +425,7 @@ export const useMapLogic = () => {
     clearSavedFields,
     handleCreateOption,
     undo,
-    redo,
-    handleMidpointDrag
+    redo
   ]);
 
   return {
