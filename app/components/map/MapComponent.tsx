@@ -446,7 +446,7 @@ const MapComponent = ({ onAreaUpdate }: MapComponentProps) => {
                           strokeColor: '#000000',
                           scale: 1.2,
                           rotation: 180,
-                          anchor: new google.maps.Point(12, 24),
+                          anchor: new google.maps.Point(0, 0),
                         }}
                         onDragStart={(e) => handleMarkerDragStart(e, index, field.id)}
                         onDragEnd={() => setters.handleMovementEnd()}

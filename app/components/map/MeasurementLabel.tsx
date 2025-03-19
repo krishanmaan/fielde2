@@ -5,11 +5,11 @@ import { OverlayView, Marker } from '@react-google-maps/api';
 import { PolygonPoint } from './types';
 
 interface MeasurementLabelProps {
-  position: PolygonPoint;
+  position: google.maps.LatLngLiteral;
   text: string;
   isEditing: boolean;
   onEditStart: () => void;
-  onLengthChange: (newLength: number) => void;
+  onLengthChange: (length: number) => void;
   onCancel: () => void;
 }
 
@@ -21,88 +21,71 @@ const MeasurementLabel: React.FC<MeasurementLabelProps> = ({
   onLengthChange,
   onCancel
 }) => {
-  const [inputValue, setInputValue] = useState(text.replace(' m', '').replace(' km', ''));
+  const [inputValue, setInputValue] = useState(text);
+  const isKilometers = text.includes('km');
 
-  const handleKeyDown = (e: React.KeyboardEvent) => {
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter') {
-      const newLength = parseFloat(inputValue);
-      if (!isNaN(newLength)) {
-        onLengthChange(newLength);
+      const numericValue = parseFloat(inputValue);
+      if (!isNaN(numericValue)) {
+        onLengthChange(numericValue);
       }
     } else if (e.key === 'Escape') {
       onCancel();
     }
   };
 
-  const handleClick = (e: google.maps.MapMouseEvent) => {
-    e.domEvent.stopPropagation();
-    if (!isEditing) {
-      onEditStart();
-    }
-  };
-
-  if (isEditing) {
-    return (
-      <OverlayView
-        position={position}
-        mapPaneName={OverlayView.OVERLAY_MOUSE_TARGET}
-      >
-        <div 
-          className="measurement-input-container"
-          style={{
-            position: 'absolute',
-            transform: 'translate(-50%, -50%)',
-            backgroundColor: 'white',
-            padding: '4px',
-            borderRadius: '4px',
-            boxShadow: '0 2px 4px rgba(0,0,0,0.2)',
-            zIndex: 1000,
-          }}
-        >
-          <input
-            type="text"
-            value={inputValue}
-            onChange={(e) => setInputValue(e.target.value)}
-            onKeyDown={handleKeyDown}
-            className="measurement-input"
-            autoFocus
-            style={{
-              width: '70px',
-              padding: '4px 8px',
-              border: '1px solid #ccc',
-              borderRadius: '4px',
-              fontSize: '14px',
-              fontWeight: 'bold',
-              textAlign: 'center',
-            }}
-          />
-          <span style={{ marginLeft: '4px', fontSize: '14px' }}>m</span>
-        </div>
-      </OverlayView>
-    );
-  }
-
   return (
-    <Marker
+    <OverlayView
       position={position}
-      icon={{
-        path: google.maps.SymbolPath.CIRCLE,
-        scale: 0,
-        fillOpacity: 0,
-        strokeOpacity: 0,
-      }}
-      label={{
-        text: text,
-        color: '#000000',
-        fontSize: '14px',
-        fontWeight: 'bold',
-        className: 'measurement-label',
-      }}
-      onClick={handleClick}
-      options={{
-        clickable: true
-      }}
-    />
+      mapPaneName={OverlayView.OVERLAY_MOUSE_TARGET}
+      getPixelPositionOffset={(width, height) => ({
+        x: -(width / 2),
+        y: -(height / 2)
+      })}
+    >
+      <div 
+        className="measurement-label"
+        style={{
+          position: 'absolute',
+          transform: 'translate(-50%, -50%)',
+          backgroundColor: isKilometers ? '#ff0000' : '#ffffff',
+          padding: '4px',
+          width: '56px',
+          borderRadius: '4px',
+          boxShadow: '0 2px 4px rgba(0,0,0,0.2)',
+          zIndex: 1000,
+          cursor: 'pointer'
+        }}
+        onClick={(e: React.MouseEvent) => {
+          e.stopPropagation();
+          if (!isEditing) {
+            onEditStart();
+          }
+        }}
+      >
+        {isEditing ? (
+          <div className="measurement-input-container">
+            <input
+              type="number"
+              value={inputValue}
+              onChange={(e) => setInputValue(e.target.value)}
+              onKeyDown={handleKeyDown}
+              className="measurement-input"
+              style={{
+                width: '60px',
+                border: '1px solid #ccc',
+                borderRadius: '2px',
+                padding: '1px'
+              }}
+              autoFocus
+            />
+          </div>
+        ) : (
+          text
+        )}
+      </div>
+    </OverlayView>
   );
 };
 
