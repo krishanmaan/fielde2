@@ -148,45 +148,53 @@ export const useMapLogic = () => {
     setSelectedPoint(null);
   }, []);
 
-  // Update point position with high precision
+  // Update point position with immediate response
   const updatePointPosition = useCallback((newLat: number, newLng: number) => {
     if (!dragStateRef.current.isDragging || dragStateRef.current.currentIndex === null) return;
 
     const newPoints = [...dragStateRef.current.originalPoints];
     newPoints[dragStateRef.current.currentIndex] = {
-      lat: Number(newLat.toFixed(8)),
-      lng: Number(newLng.toFixed(8))
+      lat: newLat,
+      lng: newLng
     };
 
-    setTempPoints(newPoints);
-
-    // Update the field immediately for better visual feedback
+    // Batch all updates together for immediate response
     if (dragStateRef.current.fieldId) {
-      setFields(prevFields => 
-        prevFields.map(field => {
-          if (field.id === dragStateRef.current.fieldId) {
-            const newArea = calculateArea(newPoints);
-            const { totalDistance, lineMeasurements } = calculatePerimeter(newPoints);
-            return {
-              ...field,
-              points: newPoints,
-              area: newArea,
-              perimeter: totalDistance,
-              measurements: lineMeasurements
-            };
-          }
-          return field;
-        })
-      );
+      const newArea = calculateArea(newPoints);
+      const { totalDistance, lineMeasurements } = calculatePerimeter(newPoints);
+      
+      // Update all states in one batch
+      Promise.resolve().then(() => {
+        setTempPoints(newPoints);
+        setFields(prevFields => 
+          prevFields.map(field => {
+            if (field.id === dragStateRef.current.fieldId) {
+              return {
+                ...field,
+                points: newPoints,
+                area: newArea,
+                perimeter: totalDistance,
+                measurements: lineMeasurements
+              };
+            }
+            return field;
+          })
+        );
+      });
     } else if (currentField) {
       const newArea = calculateArea(newPoints);
       const { totalDistance, lineMeasurements } = calculatePerimeter(newPoints);
-      setCurrentField({
-        ...currentField,
-        points: newPoints,
-        area: newArea,
-        perimeter: totalDistance,
-        measurements: lineMeasurements
+      
+      // Update all states in one batch
+      Promise.resolve().then(() => {
+        setTempPoints(newPoints);
+        setCurrentField({
+          ...currentField,
+          points: newPoints,
+          area: newArea,
+          perimeter: totalDistance,
+          measurements: lineMeasurements
+        });
       });
     }
   }, [calculateArea, calculatePerimeter, currentField, setCurrentField, setFields, setTempPoints]);
