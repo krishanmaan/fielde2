@@ -507,10 +507,10 @@ const MapComponent = ({ onAreaUpdate }: MapComponentProps) => {
                       draggable={true}
                       icon={{
                         path: mapLoaded ? google.maps.SymbolPath.CIRCLE : 0,
-                        scale: 8,
+                        scale: 12,
                         fillColor: state.hoveredPoint === index ? '#FF0000' : '#4A90E2',
                         fillOpacity: 1,
-                        strokeWeight: 2,
+                        strokeWeight: 3,
                         strokeColor: '#4A90E2',
                       }}
                       onDragStart={(e) => {
@@ -553,10 +553,10 @@ const MapComponent = ({ onAreaUpdate }: MapComponentProps) => {
                         draggable={true}
                         icon={{
                           path: mapLoaded ? google.maps.SymbolPath.CIRCLE : 0,
-                          scale: 6,
+                          scale: 10,
                           fillColor: state.hoveredPoint === `mid-${index}` ? '#FFFFFF' : '#FFA500',
                           fillOpacity: 1,
-                          strokeWeight: 2,
+                          strokeWeight: 3,
                           strokeColor: '#000000',
                         }}
                         onDragStart={(e) => {
@@ -670,10 +670,10 @@ const MapComponent = ({ onAreaUpdate }: MapComponentProps) => {
                       draggable={true}
                       icon={{
                         path: mapLoaded ? google.maps.SymbolPath.CIRCLE : 0,
-                        scale: 8,
+                        scale: 12,
                         fillColor: state.hoveredPoint === index ? '#FF0000' : '#4A90E2',
                         fillOpacity: 1,
-                        strokeWeight: 2,
+                        strokeWeight: 3,
                         strokeColor: '#4A90E2',
                       }}
                       onDragStart={(e) => {
@@ -714,10 +714,10 @@ const MapComponent = ({ onAreaUpdate }: MapComponentProps) => {
                         draggable={true}
                         icon={{
                           path: mapLoaded ? google.maps.SymbolPath.CIRCLE : 0,
-                          scale: 6,
+                          scale: 10,
                           fillColor: state.hoveredPoint === `mid-${index}` ? '#FFFFFF' : '#FFA500',
                           fillOpacity: 1,
-                          strokeWeight: 2,
+                          strokeWeight: 3,
                           strokeColor: '#000000',
                         }}
                         onDragStart={(e) => {
