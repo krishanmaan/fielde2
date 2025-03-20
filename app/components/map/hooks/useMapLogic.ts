@@ -313,7 +313,7 @@ export const useMapLogic = () => {
     }
   }, []);
 
-  // Update handleMarkerDrag to prevent excessive updates
+  // Update handleMarkerDrag to handle points like midpoints
   const handleMarkerDrag = (e: google.maps.MapMouseEvent, index: number, fieldId: string | null) => {
     if (!e.latLng) return;
 
@@ -333,7 +333,7 @@ export const useMapLogic = () => {
 
     // Throttle the updates to prevent too many re-renders
     const now = Date.now();
-    if (now - lastUpdateRef.current < 32) { // ~30fps instead of 60fps
+    if (now - lastUpdateRef.current < 32) { // ~30fps
       return;
     }
     lastUpdateRef.current = now;
@@ -356,9 +356,14 @@ export const useMapLogic = () => {
 
         return prev.map(f => {
           if (f.id === fieldId) {
+            const newArea = calculateArea(newPoints);
+            const { totalDistance, lineMeasurements } = calculatePerimeter(newPoints);
             return {
               ...f,
-              points: newPoints
+              points: newPoints,
+              area: newArea,
+              perimeter: totalDistance,
+              measurements: lineMeasurements
             };
           }
           return f;
@@ -379,45 +384,18 @@ export const useMapLogic = () => {
           return prev;
         }
 
+        const newArea = calculateArea(newPoints);
+        const { totalDistance, lineMeasurements } = calculatePerimeter(newPoints);
         return {
           ...prev,
-          points: newPoints
+          points: newPoints,
+          area: newArea,
+          perimeter: totalDistance,
+          measurements: lineMeasurements
         };
       });
     }
   };
-
-  // Update useEffect to handle area and perimeter calculations less frequently
-  useEffect(() => {
-    if (!currentField || currentField.points.length < 3 || isMovingRef.current) return;
-
-    const calculateFieldMetrics = () => {
-      const newArea = calculateArea(currentField.points);
-      const { totalDistance, lineMeasurements } = calculatePerimeter(currentField.points);
-
-      if (
-        Math.abs(newArea - currentField.area) > 0.0001 ||
-        Math.abs(totalDistance - currentField.perimeter) > 0.01
-      ) {
-        setCurrentField(prev => {
-          if (!prev) return prev;
-          return {
-            ...prev,
-            area: newArea,
-            perimeter: totalDistance,
-            measurements: lineMeasurements
-          };
-        });
-
-        setArea(newArea);
-        setPerimeter(totalDistance);
-        setMeasurements(lineMeasurements);
-      }
-    };
-
-    const timeoutId = setTimeout(calculateFieldMetrics, 100);
-    return () => clearTimeout(timeoutId);
-  }, [currentField?.points, calculateArea, calculatePerimeter]);
 
   // Update movement start to initialize points correctly
   const handleMovementStart = (index: number, fieldId: string | null, points: PolygonPoint[]) => {
