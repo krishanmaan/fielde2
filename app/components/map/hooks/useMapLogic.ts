@@ -315,7 +315,7 @@ export const useMapLogic = () => {
     }
   }, []);
 
-  // Update handleMarkerDrag to prevent excessive updates
+  // Update handleMarkerDrag for super smooth movement
   const handleMarkerDrag = (e: google.maps.MapMouseEvent, index: number, fieldId: string | null) => {
     if (!e.latLng) return;
 
@@ -324,53 +324,77 @@ export const useMapLogic = () => {
       lng: e.latLng.lng()
     };
 
-    // Update both tempPoints and field points together for synchronized movement
-    if (isMovingRef.current) {
-      const newTempPoints = [...tempPoints];
-      newTempPoints[index] = newPoint;
-      
-      // Update tempPoints immediately
-      setTempPoints(newTempPoints);
-      
-      // Update field points immediately
+    // No state updates during drag, just update the DOM element position
+    if (e.domEvent && e.domEvent.target) {
       if (fieldId) {
-        setFields(prev => {
-          const field = prev.find(f => f.id === fieldId);
-          if (!field) return prev;
-          return prev.map(f => {
-            if (f.id === fieldId) {
-              return {
-                ...f,
-                points: newTempPoints
-              };
-            }
-            return f;
-          });
-        });
+        // Store the new point in the DOM element's dataset
+        const targetElem = e.domEvent.target as HTMLElement;
+        targetElem.setAttribute('data-lat', newPoint.lat.toString());
+        targetElem.setAttribute('data-lng', newPoint.lng.toString());
+        
+        // Update fields array directly
+        const field = fields.find(f => f.id === fieldId);
+        if (field && field.points[index]) {
+          // Directly modify the field's points array
+          field.points[index] = newPoint;
+          
+          // Direct pointer update without state changes
+          if (e.latLng) {
+            // The Google Maps API will handle updating the visual marker position
+            // We don't need to do anything extra as the API does this automatically
+          }
+        }
       } else if (currentField) {
-        setCurrentField(prev => {
-          if (!prev) return prev;
-          return {
-            ...prev,
-            points: newTempPoints
-          };
-        });
+        // Directly modify currentField without triggering state updates
+        if (currentField.points[index]) {
+          currentField.points[index] = newPoint;
+          
+          // Store current position for later state update
+          if (!currentPointsRef.current.length) {
+            currentPointsRef.current = [...currentField.points];
+          } else {
+            currentPointsRef.current[index] = newPoint;
+          }
+        }
       }
     }
   };
 
-  // Update movement start to initialize points correctly
+  // Use requestAnimationFrame for smooth visual updates
+  useEffect(() => {
+    let frameId: number;
+    const updateVisuals = () => {
+      if (isMovingRef.current && currentPointsRef.current.length > 0) {
+        // Update tempPoints for smooth visuals without triggering rerenders elsewhere
+        setTempPoints([...currentPointsRef.current]);
+      }
+      frameId = requestAnimationFrame(updateVisuals);
+    };
+    
+    if (isMovingRef.current) {
+      frameId = requestAnimationFrame(updateVisuals);
+    }
+    
+    return () => {
+      if (frameId) {
+        cancelAnimationFrame(frameId);
+      }
+    };
+  }, [isMovingRef.current]);
+
+  // Handle movement start
   const handleMovementStart = (index: number, fieldId: string | null, points: PolygonPoint[]) => {
+    // Initialize refs first for immediate access
+    currentPointsRef.current = [...points];
+    isMovingRef.current = true;
+    
+    // Then update React state
     setSelectedPoint(index);
     setSelectedFieldId(fieldId);
     setIsMovingPoint(true);
+    setTempPoints([...points]);
     
-    // Initialize points
-    const initialPoints = [...points];
-    setTempPoints(initialPoints);
-    isMovingRef.current = true;
-    
-    // Disable map dragging during point movement
+    // Disable map dragging
     if (map) {
       map.setOptions({ 
         draggable: false,
@@ -380,8 +404,9 @@ export const useMapLogic = () => {
     }
   };
 
-  // Handle movement end
+  // Handle movement end with optimized cleanup
   const handleMovementEnd = useCallback(() => {
+    // Re-enable map controls
     if (map) {
       map.setOptions({ 
         draggable: true,
@@ -390,29 +415,51 @@ export const useMapLogic = () => {
       });
     }
 
-    // Update final measurements after movement ends
-    if (currentField && currentField.points.length >= 3) {
-      const newArea = calculateArea(currentField.points);
-      const { totalDistance, lineMeasurements } = calculatePerimeter(currentField.points);
-      
-      setCurrentField(prev => {
-        if (!prev) return prev;
-        return {
-          ...prev,
-          area: newArea,
-          perimeter: totalDistance,
-          measurements: lineMeasurements
-        };
-      });
+    // Get final points from ref
+    const finalPoints = [...currentPointsRef.current];
+
+    // Apply all state updates at once
+    if (finalPoints.length > 0) {
+      if (selectedFieldId) {
+        setFields(prev => prev.map(f => {
+          if (f.id === selectedFieldId) {
+            const newArea = calculateArea(finalPoints);
+            const { totalDistance, lineMeasurements } = calculatePerimeter(finalPoints);
+            return {
+              ...f,
+              points: finalPoints,
+              area: newArea,
+              perimeter: totalDistance,
+              measurements: lineMeasurements
+            };
+          }
+          return f;
+        }));
+      } else if (currentField) {
+        const newArea = calculateArea(finalPoints);
+        const { totalDistance, lineMeasurements } = calculatePerimeter(finalPoints);
+        setCurrentField(prev => {
+          if (!prev) return prev;
+          return {
+            ...prev,
+            points: finalPoints,
+            area: newArea,
+            perimeter: totalDistance,
+            measurements: lineMeasurements
+          };
+        });
+      }
     }
 
+    // Reset all refs and states
+    currentPointsRef.current = [];
+    isMovingRef.current = false;
     setIsMovingPoint(false);
     setSelectedPoint(null);
     setSelectedFieldId(null);
     setHoveredPoint(null);
-    isMovingRef.current = false;
     setShouldSaveToHistory(true);
-  }, [map, currentField, calculateArea, calculatePerimeter]);
+  }, [map, currentField, selectedFieldId, calculateArea, calculatePerimeter]);
 
   // Update area and measurements when points change
   useEffect(() => {
