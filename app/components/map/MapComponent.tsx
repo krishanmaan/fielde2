@@ -664,7 +664,7 @@ const MapComponent = ({ onAreaUpdate }: MapComponentProps) => {
                       draggable={true}
                       icon={{
                         path: mapLoaded ? google.maps.SymbolPath.CIRCLE : 0,
-                        scale: 12,
+                        scale: 8,
                         fillColor: state.hoveredPoint === index ? '#FF0000' : '#4A90E2',
                         fillOpacity: 1,
                         strokeWeight: 3,
@@ -695,14 +695,14 @@ const MapComponent = ({ onAreaUpdate }: MapComponentProps) => {
                       cursor="move"
                     />
 
-                    {/* Midpoint marker */}
-                    {index < points.length - 1 && state.currentField && (
+                    {/* Midpoint marker - show for all points when we have 3 or more points */}
+                    {points.length >= 3 && (
                       <Marker
                         position={midpoint}
                         draggable={true}
                         icon={{
                           path: mapLoaded ? google.maps.SymbolPath.CIRCLE : 0,
-                          scale: 10,
+                          scale: 6,
                           fillColor: state.hoveredPoint === `mid-${index}` ? '#FFFFFF' : '#FFA500',
                           fillOpacity: 1,
                           strokeWeight: 3,
