@@ -507,27 +507,18 @@ const MapComponent = ({ onAreaUpdate }: MapComponentProps) => {
                         position={point}
                         draggable={true}
                         icon={getRegularMarkerIcon(state.hoveredPoint === index)}
-                        onClick={(e) => {
-                          e.domEvent.stopPropagation();
-                          handleMarkerClick(index, field.id);
-                        }}
                         onMouseOver={() => setters.handleMarkerHover(index)}
                         onMouseOut={() => setters.handleMarkerHover(null)}
-                        onDragStart={(e) => handleMarkerDragStart(e, index, field.id)}
+                        onDragStart={(e) => {
+                          e.domEvent.stopPropagation();
+                          handleMarkerDragStart(e, index, field.id);
+                        }}
                         onDrag={(e) => {
                           if (!e.latLng) return;
                           handleMarkerDrag(e, index, field.id);
                         }}
-                        onDragEnd={(e) => {
+                        onDragEnd={() => {
                           setters.handleMovementEnd();
-                          // Update the final position
-                          if (e.latLng) {
-                            const finalPoint = {
-                              lat: e.latLng.lat(),
-                              lng: e.latLng.lng()
-                            };
-                            setters.handleMarkerDrag(e, index, field.id);
-                          }
                         }}
                         options={{
                           clickable: true,
@@ -716,17 +707,25 @@ const MapComponent = ({ onAreaUpdate }: MapComponentProps) => {
                         position={point}
                         draggable={true}
                         icon={getRegularMarkerIcon(state.hoveredPoint === index)}
-                        onClick={(e) => {
-                          e.domEvent.stopPropagation();
-                          handleMarkerClick(index, null);
-                        }}
                         onMouseOver={() => setters.handleMarkerHover(index)}
                         onMouseOut={() => setters.handleMarkerHover(null)}
+                        onDragStart={(e) => {
+                          e.domEvent.stopPropagation();
+                          handleMarkerDragStart(e, index, null);
+                        }}
+                        onDrag={(e) => {
+                          if (!e.latLng) return;
+                          handleMarkerDrag(e, index, null);
+                        }}
+                        onDragEnd={() => {
+                          setters.handleMovementEnd();
+                        }}
                         options={{
                           clickable: true,
-                          draggable: !state.isDrawing
+                          draggable: true
                         }}
-                        cursor="pointer"
+                        cursor="move"
+                        zIndex={2}
                       />
                     )}
 
