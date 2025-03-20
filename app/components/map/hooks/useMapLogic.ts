@@ -324,68 +324,38 @@ export const useMapLogic = () => {
       lng: e.latLng.lng()
     };
 
-    // Update tempPoints for smooth movement
+    // Update both tempPoints and field points together for synchronized movement
     if (isMovingRef.current) {
-      setTempPoints(prev => {
-        const newTempPoints = [...prev];
-        newTempPoints[index] = newPoint;
-        return newTempPoints;
-      });
-    }
-
-    // Throttle the updates to prevent too many re-renders
-    const now = Date.now();
-    if (now - lastUpdateRef.current < 32) { // ~30fps
-      return;
-    }
-    lastUpdateRef.current = now;
-
-    if (fieldId) {
-      setFields(prev => {
-        const field = prev.find(f => f.id === fieldId);
-        if (!field) return prev;
-
-        const newPoints = [...field.points];
-        newPoints[index] = newPoint;
-
-        // Skip update if position hasn't changed significantly
-        const oldPoint = field.points[index];
-        const latDiff = Math.abs(oldPoint.lat - newPoint.lat);
-        const lngDiff = Math.abs(oldPoint.lng - newPoint.lng);
-        if (latDiff < 0.0000001 && lngDiff < 0.0000001) {
-          return prev;
-        }
-
-        return prev.map(f => {
-          if (f.id === fieldId) {
-            return {
-              ...f,
-              points: newPoints
-            };
-          }
-          return f;
+      const newTempPoints = [...tempPoints];
+      newTempPoints[index] = newPoint;
+      
+      // Update tempPoints immediately
+      setTempPoints(newTempPoints);
+      
+      // Update field points immediately
+      if (fieldId) {
+        setFields(prev => {
+          const field = prev.find(f => f.id === fieldId);
+          if (!field) return prev;
+          return prev.map(f => {
+            if (f.id === fieldId) {
+              return {
+                ...f,
+                points: newTempPoints
+              };
+            }
+            return f;
+          });
         });
-      });
-    } else if (currentField) {
-      setCurrentField(prev => {
-        if (!prev) return prev;
-
-        const newPoints = [...prev.points];
-        newPoints[index] = newPoint;
-
-        // Skip update if position hasn't changed significantly
-        const oldPoint = prev.points[index];
-        const latDiff = Math.abs(oldPoint.lat - newPoint.lat);
-        const lngDiff = Math.abs(oldPoint.lng - newPoint.lng);
-        if (latDiff < 0.0000001 && lngDiff < 0.0000001) {
-          return prev;
-        }
-
-        return {
-          ...prev,
-          points: newPoints
-        };
-      });
+      } else if (currentField) {
+        setCurrentField(prev => {
+          if (!prev) return prev;
+          return {
+            ...prev,
+            points: newTempPoints
+          };
+        });
+      }
     }
   };
 
@@ -394,7 +364,10 @@ export const useMapLogic = () => {
     setSelectedPoint(index);
     setSelectedFieldId(fieldId);
     setIsMovingPoint(true);
-    setTempPoints([...points]);
+    
+    // Initialize points
+    const initialPoints = [...points];
+    setTempPoints(initialPoints);
     isMovingRef.current = true;
     
     // Disable map dragging during point movement
