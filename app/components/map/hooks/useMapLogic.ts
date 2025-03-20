@@ -60,6 +60,11 @@ export const useMapLogic = () => {
   const [historyIndex, setHistoryIndex] = useState(-1);
   const [shouldSaveToHistory, setShouldSaveToHistory] = useState(false);
 
+  // Track polygon overlays
+  const polygonRef = useRef<google.maps.Polygon | null>(null);
+  const pathRef = useRef<google.maps.MVCArray<google.maps.LatLng> | null>(null);
+  const linesRef = useRef<google.maps.Polyline[]>([]);
+
   // Load saved fields from localStorage on initial load
   useEffect(() => {
     try {
@@ -210,6 +215,108 @@ export const useMapLogic = () => {
     };
   }, []);
 
+  // Handle midpoint drag
+  const handleMidpointDrag = (e: google.maps.MapMouseEvent, index: number, fieldId: string | null) => {
+    if (!e.latLng) return;
+
+    const newPoint = {
+      lat: e.latLng.lat(),
+      lng: e.latLng.lng()
+    };
+
+    // Insert new point at the midpoint position
+    if (fieldId) {
+      const field = fields.find(f => f.id === fieldId);
+      if (field) {
+        const newPoints = [...field.points];
+        // Insert the new point after the current index
+        newPoints.splice(index + 1, 0, newPoint);
+        
+        // Update field points
+        field.points = newPoints;
+        
+        // Update polygon path
+        if (pathRef.current) {
+          const path = new google.maps.MVCArray(
+            newPoints.map(p => new google.maps.LatLng(p.lat, p.lng))
+          );
+          polygonRef.current?.setPaths(path);
+          pathRef.current = path;
+        }
+
+        // Recreate lines with new point
+        if (map) {
+          // Clear existing lines
+          linesRef.current.forEach(line => line.setMap(null));
+          linesRef.current = [];
+
+          // Create new lines
+          const lines: google.maps.Polyline[] = [];
+          for (let i = 0; i < newPoints.length; i++) {
+            const start = newPoints[i];
+            const end = newPoints[(i + 1) % newPoints.length];
+            
+            const line = new google.maps.Polyline({
+              path: [
+                new google.maps.LatLng(start.lat, start.lng),
+                new google.maps.LatLng(end.lat, end.lng)
+              ],
+              map: map,
+              strokeColor: '#00FF00',
+              strokeOpacity: 1.0,
+              strokeWeight: 2
+            });
+            lines.push(line);
+          }
+          linesRef.current = lines;
+        }
+      }
+    } else if (currentField) {
+      const newPoints = [...currentField.points];
+      // Insert the new point after the current index
+      newPoints.splice(index + 1, 0, newPoint);
+      
+      // Update current field points
+      currentField.points = newPoints;
+      
+      // Update polygon path
+      if (pathRef.current) {
+        const path = new google.maps.MVCArray(
+          newPoints.map(p => new google.maps.LatLng(p.lat, p.lng))
+        );
+        polygonRef.current?.setPaths(path);
+        pathRef.current = path;
+      }
+
+      // Recreate lines with new point
+      if (map) {
+        // Clear existing lines
+        linesRef.current.forEach(line => line.setMap(null));
+        linesRef.current = [];
+
+        // Create new lines
+        const lines: google.maps.Polyline[] = [];
+        for (let i = 0; i < newPoints.length; i++) {
+          const start = newPoints[i];
+          const end = newPoints[(i + 1) % newPoints.length];
+          
+          const line = new google.maps.Polyline({
+            path: [
+              new google.maps.LatLng(start.lat, start.lng),
+              new google.maps.LatLng(end.lat, end.lng)
+            ],
+            map: map,
+            strokeColor: '#00FF00',
+            strokeOpacity: 1.0,
+            strokeWeight: 2
+          });
+          lines.push(line);
+        }
+        linesRef.current = lines;
+      }
+    }
+  };
+
   // State object for easy access
   const state = {
     isDrawing,
@@ -315,86 +422,58 @@ export const useMapLogic = () => {
     }
   }, []);
 
-  // Update handleMarkerDrag for super smooth movement
-  const handleMarkerDrag = (e: google.maps.MapMouseEvent, index: number, fieldId: string | null) => {
-    if (!e.latLng) return;
-
-    const newPoint = {
-      lat: e.latLng.lat(),
-      lng: e.latLng.lng()
-    };
-
-    // No state updates during drag, just update the DOM element position
-    if (e.domEvent && e.domEvent.target) {
-      if (fieldId) {
-        // Store the new point in the DOM element's dataset
-        const targetElem = e.domEvent.target as HTMLElement;
-        targetElem.setAttribute('data-lat', newPoint.lat.toString());
-        targetElem.setAttribute('data-lng', newPoint.lng.toString());
-        
-        // Update fields array directly
-        const field = fields.find(f => f.id === fieldId);
-        if (field && field.points[index]) {
-          // Directly modify the field's points array
-          field.points[index] = newPoint;
-          
-          // Direct pointer update without state changes
-          if (e.latLng) {
-            // The Google Maps API will handle updating the visual marker position
-            // We don't need to do anything extra as the API does this automatically
-          }
-        }
-      } else if (currentField) {
-        // Directly modify currentField without triggering state updates
-        if (currentField.points[index]) {
-          currentField.points[index] = newPoint;
-          
-          // Store current position for later state update
-          if (!currentPointsRef.current.length) {
-            currentPointsRef.current = [...currentField.points];
-          } else {
-            currentPointsRef.current[index] = newPoint;
-          }
-        }
-      }
-    }
-  };
-
-  // Use requestAnimationFrame for smooth visual updates
-  useEffect(() => {
-    let frameId: number;
-    const updateVisuals = () => {
-      if (isMovingRef.current && currentPointsRef.current.length > 0) {
-        // Update tempPoints for smooth visuals without triggering rerenders elsewhere
-        setTempPoints([...currentPointsRef.current]);
-      }
-      frameId = requestAnimationFrame(updateVisuals);
-    };
-    
-    if (isMovingRef.current) {
-      frameId = requestAnimationFrame(updateVisuals);
-    }
-    
-    return () => {
-      if (frameId) {
-        cancelAnimationFrame(frameId);
-      }
-    };
-  }, [isMovingRef.current]);
-
-  // Handle movement start
+  // Initialize polygon and lines on movement start
   const handleMovementStart = (index: number, fieldId: string | null, points: PolygonPoint[]) => {
-    // Initialize refs first for immediate access
-    currentPointsRef.current = [...points];
-    isMovingRef.current = true;
-    
-    // Then update React state
     setSelectedPoint(index);
     setSelectedFieldId(fieldId);
-    setIsMovingPoint(true);
-    setTempPoints([...points]);
     
-    // Disable map dragging
+    // Clear any existing overlays
+    if (polygonRef.current) {
+      polygonRef.current.setMap(null);
+      polygonRef.current = null;
+    }
+    linesRef.current.forEach(line => line.setMap(null));
+    linesRef.current = [];
+    
+    if (map) {
+      // Create lines for each segment
+      const lines: google.maps.Polyline[] = [];
+      for (let i = 0; i < points.length; i++) {
+        const start = points[i];
+        const end = points[(i + 1) % points.length];
+        
+        const line = new google.maps.Polyline({
+          path: [
+            new google.maps.LatLng(start.lat, start.lng),
+            new google.maps.LatLng(end.lat, end.lng)
+          ],
+          map: map,
+          strokeColor: '#00FF00',
+          strokeOpacity: 1.0,
+          strokeWeight: 2
+        });
+        lines.push(line);
+      }
+      linesRef.current = lines;
+
+      // Create the path for polygon
+      const path = new google.maps.MVCArray(
+        points.map(p => new google.maps.LatLng(p.lat, p.lng))
+      );
+      
+      const polygon = new google.maps.Polygon({
+        paths: path,
+        map: map,
+        strokeOpacity: 0,
+        fillColor: '#00FF00',
+        fillOpacity: 0.1,
+      });
+      
+      polygonRef.current = polygon;
+      pathRef.current = path;
+    }
+    
+    // Disable map movement
     if (map) {
       map.setOptions({ 
         draggable: false,
@@ -404,9 +483,87 @@ export const useMapLogic = () => {
     }
   };
 
-  // Handle movement end with optimized cleanup
+  // Super optimized drag handler with line updates
+  const handleMarkerDrag = (e: google.maps.MapMouseEvent, index: number, fieldId: string | null) => {
+    if (!e.latLng) return;
+
+    const newPoint = {
+      lat: e.latLng.lat(),
+      lng: e.latLng.lng()
+    };
+
+    // Update the point in memory and visuals
+    if (fieldId) {
+      const field = fields.find(f => f.id === fieldId);
+      if (field) {
+        // Update point in field without triggering state update
+        field.points[index] = newPoint;
+        
+        // Update polygon path
+        if (pathRef.current) {
+          pathRef.current.setAt(index, e.latLng);
+        }
+
+        // Update connected lines
+        if (linesRef.current.length > 0) {
+          const points = field.points;
+          // Update line before the point
+          const prevIndex = (index - 1 + points.length) % points.length;
+          const prevLine = linesRef.current[prevIndex];
+          if (prevLine) {
+            prevLine.setPath([
+              new google.maps.LatLng(points[prevIndex].lat, points[prevIndex].lng),
+              new google.maps.LatLng(newPoint.lat, newPoint.lng)
+            ]);
+          }
+          
+          // Update line after the point
+          const nextLine = linesRef.current[index];
+          if (nextLine) {
+            nextLine.setPath([
+              new google.maps.LatLng(newPoint.lat, newPoint.lng),
+              new google.maps.LatLng(points[(index + 1) % points.length].lat, points[(index + 1) % points.length].lng)
+            ]);
+          }
+        }
+      }
+    } else if (currentField) {
+      // Update point in current field without triggering state update
+      currentField.points[index] = newPoint;
+      
+      // Update polygon path
+      if (pathRef.current) {
+        pathRef.current.setAt(index, e.latLng);
+      }
+
+      // Update connected lines
+      if (linesRef.current.length > 0) {
+        const points = currentField.points;
+        // Update line before the point
+        const prevIndex = (index - 1 + points.length) % points.length;
+        const prevLine = linesRef.current[prevIndex];
+        if (prevLine) {
+          prevLine.setPath([
+            new google.maps.LatLng(points[prevIndex].lat, points[prevIndex].lng),
+            new google.maps.LatLng(newPoint.lat, newPoint.lng)
+          ]);
+        }
+        
+        // Update line after the point
+        const nextLine = linesRef.current[index];
+        if (nextLine) {
+          nextLine.setPath([
+            new google.maps.LatLng(newPoint.lat, newPoint.lng),
+            new google.maps.LatLng(points[(index + 1) % points.length].lat, points[(index + 1) % points.length].lng)
+          ]);
+        }
+      }
+    }
+  };
+
+  // Cleanup polygon and lines on movement end
   const handleMovementEnd = useCallback(() => {
-    // Re-enable map controls
+    // Re-enable map movement
     if (map) {
       map.setOptions({ 
         draggable: true,
@@ -415,56 +572,57 @@ export const useMapLogic = () => {
       });
     }
 
-    // Get final points from ref
-    const finalPoints = [...currentPointsRef.current];
+    // Remove temporary overlays
+    if (polygonRef.current) {
+      polygonRef.current.setMap(null);
+      polygonRef.current = null;
+      pathRef.current = null;
+    }
+    linesRef.current.forEach(line => line.setMap(null));
+    linesRef.current = [];
 
-    // Apply all state updates at once
-    if (finalPoints.length > 0) {
-      if (selectedFieldId) {
-        setFields(prev => prev.map(f => {
-          if (f.id === selectedFieldId) {
-            const newArea = calculateArea(finalPoints);
-            const { totalDistance, lineMeasurements } = calculatePerimeter(finalPoints);
-            return {
-              ...f,
-              points: finalPoints,
-              area: newArea,
-              perimeter: totalDistance,
-              measurements: lineMeasurements
-            };
-          }
-          return f;
-        }));
-      } else if (currentField) {
-        const newArea = calculateArea(finalPoints);
-        const { totalDistance, lineMeasurements } = calculatePerimeter(finalPoints);
-        setCurrentField(prev => {
-          if (!prev) return prev;
-          return {
-            ...prev,
-            points: finalPoints,
-            area: newArea,
-            perimeter: totalDistance,
-            measurements: lineMeasurements
-          };
-        });
+    // Update final state with all changes at once
+    if (selectedFieldId) {
+      const field = fields.find(f => f.id === selectedFieldId);
+      if (field) {
+        const newArea = calculateArea(field.points);
+        const { totalDistance, lineMeasurements } = calculatePerimeter(field.points);
+        setFields(prev => prev.map(f => 
+          f.id === selectedFieldId 
+            ? {
+                ...f,
+                points: [...field.points],
+                area: newArea,
+                perimeter: totalDistance,
+                measurements: lineMeasurements
+              }
+            : f
+        ));
       }
+    } else if (currentField) {
+      const newArea = calculateArea(currentField.points);
+      const { totalDistance, lineMeasurements } = calculatePerimeter(currentField.points);
+      setCurrentField({
+        ...currentField,
+        points: [...currentField.points],
+        area: newArea,
+        perimeter: totalDistance,
+        measurements: lineMeasurements
+      });
     }
 
-    // Reset all refs and states
-    currentPointsRef.current = [];
-    isMovingRef.current = false;
-    setIsMovingPoint(false);
+    // Reset states
     setSelectedPoint(null);
     setSelectedFieldId(null);
     setHoveredPoint(null);
     setShouldSaveToHistory(true);
-  }, [map, currentField, selectedFieldId, calculateArea, calculatePerimeter]);
+  }, [map, currentField, selectedFieldId, fields, calculateArea, calculatePerimeter]);
 
-  // Update area and measurements when points change
+  // Optimize useEffect to prevent infinite loops
   useEffect(() => {
     if (!currentField || currentField.points.length < 3 || isMovingRef.current) return;
 
+    // Use a debounced update
     const timeoutId = setTimeout(() => {
       const newArea = calculateArea(currentField.points);
       const { totalDistance, lineMeasurements } = calculatePerimeter(currentField.points);
@@ -524,6 +682,7 @@ export const useMapLogic = () => {
     handleMovementStart,
     handleMovementEnd,
     handleMarkerDrag,
+    handleMidpointDrag,
     clearSavedFields,
     handleCreateOption,
     undo,
@@ -533,6 +692,7 @@ export const useMapLogic = () => {
     handleMovementStart,
     handleMovementEnd,
     handleMarkerDrag,
+    handleMidpointDrag,
     clearSavedFields,
     handleCreateOption,
     undo,
