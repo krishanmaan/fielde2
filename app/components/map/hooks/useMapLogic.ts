@@ -160,12 +160,14 @@ export const useMapLogic = () => {
 
   // Watch for changes that should be saved to history
   useEffect(() => {
-    setShouldSaveToHistory(true);
+    if (!isMovingRef.current) {
+      setShouldSaveToHistory(true);
+    }
   }, [fields, currentField?.points]);
 
   // Save state to history when needed
   useEffect(() => {
-    if (shouldSaveToHistory) {
+    if (shouldSaveToHistory && !isMovingRef.current) {
       saveToHistory();
     }
   }, [shouldSaveToHistory, saveToHistory]);
@@ -313,7 +315,7 @@ export const useMapLogic = () => {
     }
   }, []);
 
-  // Update handleMarkerDrag to handle points like midpoints
+  // Update handleMarkerDrag to prevent excessive updates
   const handleMarkerDrag = (e: google.maps.MapMouseEvent, index: number, fieldId: string | null) => {
     if (!e.latLng) return;
 
@@ -356,14 +358,9 @@ export const useMapLogic = () => {
 
         return prev.map(f => {
           if (f.id === fieldId) {
-            const newArea = calculateArea(newPoints);
-            const { totalDistance, lineMeasurements } = calculatePerimeter(newPoints);
             return {
               ...f,
-              points: newPoints,
-              area: newArea,
-              perimeter: totalDistance,
-              measurements: lineMeasurements
+              points: newPoints
             };
           }
           return f;
@@ -384,14 +381,9 @@ export const useMapLogic = () => {
           return prev;
         }
 
-        const newArea = calculateArea(newPoints);
-        const { totalDistance, lineMeasurements } = calculatePerimeter(newPoints);
         return {
           ...prev,
-          points: newPoints,
-          area: newArea,
-          perimeter: totalDistance,
-          measurements: lineMeasurements
+          points: newPoints
         };
       });
     }
@@ -424,13 +416,59 @@ export const useMapLogic = () => {
         gestureHandling: 'greedy'
       });
     }
+
+    // Update final measurements after movement ends
+    if (currentField && currentField.points.length >= 3) {
+      const newArea = calculateArea(currentField.points);
+      const { totalDistance, lineMeasurements } = calculatePerimeter(currentField.points);
+      
+      setCurrentField(prev => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          area: newArea,
+          perimeter: totalDistance,
+          measurements: lineMeasurements
+        };
+      });
+    }
+
     setIsMovingPoint(false);
     setSelectedPoint(null);
     setSelectedFieldId(null);
     setHoveredPoint(null);
     isMovingRef.current = false;
     setShouldSaveToHistory(true);
-  }, [map]);
+  }, [map, currentField, calculateArea, calculatePerimeter]);
+
+  // Update area and measurements when points change
+  useEffect(() => {
+    if (!currentField || currentField.points.length < 3 || isMovingRef.current) return;
+
+    const timeoutId = setTimeout(() => {
+      const newArea = calculateArea(currentField.points);
+      const { totalDistance, lineMeasurements } = calculatePerimeter(currentField.points);
+
+      // Only update if values have changed significantly
+      if (
+        Math.abs(newArea - currentField.area) > 0.0001 ||
+        Math.abs(totalDistance - currentField.perimeter) > 0.01 ||
+        JSON.stringify(lineMeasurements) !== JSON.stringify(currentField.measurements)
+      ) {
+        setCurrentField(prev => {
+          if (!prev) return prev;
+          return {
+            ...prev,
+            area: newArea,
+            perimeter: totalDistance,
+            measurements: lineMeasurements
+          };
+        });
+      }
+    }, 100); // Delay updates by 100ms
+
+    return () => clearTimeout(timeoutId);
+  }, [currentField?.points, calculateArea, calculatePerimeter]);
 
   // Memoize calculations object
   const calculations = useMemo(() => ({

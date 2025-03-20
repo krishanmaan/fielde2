@@ -540,12 +540,6 @@ const MapComponent = ({ onAreaUpdate }: MapComponentProps) => {
                       cursor="move"
                     />
 
-                    {/* Corner label */}
-                    <CornerLabel
-                      position={point}
-                      text={String.fromCharCode(65 + index)}
-                    />
-
                     {/* Midpoint marker */}
                     {index < points.length - 1 && (
                       <Marker
@@ -699,12 +693,6 @@ const MapComponent = ({ onAreaUpdate }: MapComponentProps) => {
                         zIndex: 2
                       }}
                       cursor="move"
-                    />
-
-                    {/* Corner label */}
-                    <CornerLabel
-                      position={point}
-                      text={String.fromCharCode(65 + index)}
                     />
 
                     {/* Midpoint marker */}
