@@ -235,22 +235,45 @@ export const useMapLogic = () => {
         // Update field points
         field.points = newPoints;
         
-        // Update polygon path
-        if (pathRef.current) {
+        // Force immediate update
+        setFields(prev => prev.map(f => 
+          f.id === fieldId ? { ...f, points: newPoints } : f
+        ));
+
+        // Set this point as selected for dragging
+        setSelectedPoint(index + 1);
+        setSelectedFieldId(fieldId);
+        setIsMovingPoint(true);
+
+        // Update polygon and lines
+        if (map) {
+          // Update polygon path
+          if (polygonRef.current) {
+            polygonRef.current.setMap(null);
+          }
+          if (pathRef.current) {
+            pathRef.current = null;
+          }
+
           const path = new google.maps.MVCArray(
             newPoints.map(p => new google.maps.LatLng(p.lat, p.lng))
           );
-          polygonRef.current?.setPaths(path);
+          
+          const polygon = new google.maps.Polygon({
+            paths: path,
+            map: map,
+            strokeOpacity: 0,
+            fillColor: '#00FF00',
+            fillOpacity: 0.1,
+          });
+          
+          polygonRef.current = polygon;
           pathRef.current = path;
-        }
 
-        // Recreate lines with new point
-        if (map) {
-          // Clear existing lines
+          // Update lines
           linesRef.current.forEach(line => line.setMap(null));
           linesRef.current = [];
 
-          // Create new lines
           const lines: google.maps.Polyline[] = [];
           for (let i = 0; i < newPoints.length; i++) {
             const start = newPoints[i];
@@ -276,25 +299,45 @@ export const useMapLogic = () => {
       // Insert the new point after the current index
       newPoints.splice(index + 1, 0, newPoint);
       
-      // Update current field points
-      currentField.points = newPoints;
-      
-      // Update polygon path
-      if (pathRef.current) {
+      // Force immediate update
+      setCurrentField({
+        ...currentField,
+        points: newPoints
+      });
+
+      // Set this point as selected for dragging
+      setSelectedPoint(index + 1);
+      setIsMovingPoint(true);
+
+      // Update polygon and lines
+      if (map) {
+        // Update polygon path
+        if (polygonRef.current) {
+          polygonRef.current.setMap(null);
+        }
+        if (pathRef.current) {
+          pathRef.current = null;
+        }
+
         const path = new google.maps.MVCArray(
           newPoints.map(p => new google.maps.LatLng(p.lat, p.lng))
         );
-        polygonRef.current?.setPaths(path);
+        
+        const polygon = new google.maps.Polygon({
+          paths: path,
+          map: map,
+          strokeOpacity: 0,
+          fillColor: '#00FF00',
+          fillOpacity: 0.1,
+        });
+        
+        polygonRef.current = polygon;
         pathRef.current = path;
-      }
 
-      // Recreate lines with new point
-      if (map) {
-        // Clear existing lines
+        // Update lines
         linesRef.current.forEach(line => line.setMap(null));
         linesRef.current = [];
 
-        // Create new lines
         const lines: google.maps.Polyline[] = [];
         for (let i = 0; i < newPoints.length; i++) {
           const start = newPoints[i];
@@ -314,6 +357,15 @@ export const useMapLogic = () => {
         }
         linesRef.current = lines;
       }
+    }
+
+    // Disable map movement
+    if (map) {
+      map.setOptions({ 
+        draggable: false,
+        scrollwheel: false,
+        gestureHandling: 'none'
+      });
     }
   };
 
