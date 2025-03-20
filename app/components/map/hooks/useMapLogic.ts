@@ -172,7 +172,7 @@ export const useMapLogic = () => {
 
   // Calculate area
   const calculateArea = useCallback((polygonPoints: PolygonPoint[]) => {
-    if (polygonPoints.length < 3) return 0;
+    if (!window.google || polygonPoints.length < 3) return 0;
     const polygon = new google.maps.Polygon({ paths: polygonPoints });
     const areaInSqMeters = google.maps.geometry.spherical.computeArea(polygon.getPath());
     return areaInSqMeters / 10000; // Convert to hectares
@@ -180,7 +180,7 @@ export const useMapLogic = () => {
 
   // Calculate perimeter
   const calculatePerimeter = useCallback((polygonPoints: PolygonPoint[]): { totalDistance: number; lineMeasurements: { length: number; width: number; }[] } => {
-    if (polygonPoints.length < 2) return { totalDistance: 0, lineMeasurements: [] };
+    if (!window.google || polygonPoints.length < 2) return { totalDistance: 0, lineMeasurements: [] };
     let totalDistance = 0;
     const lineMeasurements: { length: number; width: number; }[] = [];
 
@@ -279,6 +279,7 @@ export const useMapLogic = () => {
     index: number, 
     newLength: number
   ): PolygonPoint[] => {
+    if (!window.google) return points;
     const point1 = points[index];
     const point2 = points[(index + 1) % points.length];
     
@@ -312,7 +313,7 @@ export const useMapLogic = () => {
     }
   }, []);
 
-  // Update handleMarkerDrag to also update midpoints
+  // Update handleMarkerDrag to prevent excessive updates
   const handleMarkerDrag = (e: google.maps.MapMouseEvent, index: number, fieldId: string | null) => {
     if (!e.latLng) return;
 
@@ -321,45 +322,119 @@ export const useMapLogic = () => {
       lng: e.latLng.lng()
     };
 
+    // Update tempPoints for smooth movement
+    if (isMovingRef.current) {
+      setTempPoints(prev => {
+        const newTempPoints = [...prev];
+        newTempPoints[index] = newPoint;
+        return newTempPoints;
+      });
+    }
+
+    // Throttle the updates to prevent too many re-renders
+    const now = Date.now();
+    if (now - lastUpdateRef.current < 32) { // ~30fps instead of 60fps
+      return;
+    }
+    lastUpdateRef.current = now;
+
     if (fieldId) {
-      setFields(prev => prev.map(f => {
-        if (f.id === fieldId) {
-          const newPoints = [...f.points];
-          newPoints[index] = newPoint;
-          const newArea = calculateArea(newPoints);
-          const { totalDistance, lineMeasurements } = calculatePerimeter(newPoints);
-          return {
-            ...f,
-            points: newPoints,
-            area: newArea,
-            perimeter: totalDistance,
-            measurements: lineMeasurements
-          };
+      setFields(prev => {
+        const field = prev.find(f => f.id === fieldId);
+        if (!field) return prev;
+
+        const newPoints = [...field.points];
+        newPoints[index] = newPoint;
+
+        // Skip update if position hasn't changed significantly
+        const oldPoint = field.points[index];
+        const latDiff = Math.abs(oldPoint.lat - newPoint.lat);
+        const lngDiff = Math.abs(oldPoint.lng - newPoint.lng);
+        if (latDiff < 0.0000001 && lngDiff < 0.0000001) {
+          return prev;
         }
-        return f;
-      }));
+
+        return prev.map(f => {
+          if (f.id === fieldId) {
+            return {
+              ...f,
+              points: newPoints
+            };
+          }
+          return f;
+        });
+      });
     } else if (currentField) {
-      const newPoints = [...currentField.points];
-      newPoints[index] = newPoint;
-      const newArea = calculateArea(newPoints);
-      const { totalDistance, lineMeasurements } = calculatePerimeter(newPoints);
-      setCurrentField({
-        ...currentField,
-        points: newPoints,
-        area: newArea,
-        perimeter: totalDistance,
-        measurements: lineMeasurements
+      setCurrentField(prev => {
+        if (!prev) return prev;
+
+        const newPoints = [...prev.points];
+        newPoints[index] = newPoint;
+
+        // Skip update if position hasn't changed significantly
+        const oldPoint = prev.points[index];
+        const latDiff = Math.abs(oldPoint.lat - newPoint.lat);
+        const lngDiff = Math.abs(oldPoint.lng - newPoint.lng);
+        if (latDiff < 0.0000001 && lngDiff < 0.0000001) {
+          return prev;
+        }
+
+        return {
+          ...prev,
+          points: newPoints
+        };
       });
     }
   };
 
-  // Update movement start to initialize points
+  // Update useEffect to handle area and perimeter calculations less frequently
+  useEffect(() => {
+    if (!currentField || currentField.points.length < 3 || isMovingRef.current) return;
+
+    const calculateFieldMetrics = () => {
+      const newArea = calculateArea(currentField.points);
+      const { totalDistance, lineMeasurements } = calculatePerimeter(currentField.points);
+
+      if (
+        Math.abs(newArea - currentField.area) > 0.0001 ||
+        Math.abs(totalDistance - currentField.perimeter) > 0.01
+      ) {
+        setCurrentField(prev => {
+          if (!prev) return prev;
+          return {
+            ...prev,
+            area: newArea,
+            perimeter: totalDistance,
+            measurements: lineMeasurements
+          };
+        });
+
+        setArea(newArea);
+        setPerimeter(totalDistance);
+        setMeasurements(lineMeasurements);
+      }
+    };
+
+    const timeoutId = setTimeout(calculateFieldMetrics, 100);
+    return () => clearTimeout(timeoutId);
+  }, [currentField?.points, calculateArea, calculatePerimeter]);
+
+  // Update movement start to initialize points correctly
   const handleMovementStart = (index: number, fieldId: string | null, points: PolygonPoint[]) => {
     setSelectedPoint(index);
     setSelectedFieldId(fieldId);
     setIsMovingPoint(true);
     setTempPoints([...points]);
     isMovingRef.current = true;
+    
+    // Disable map dragging during point movement
+    if (map) {
+      map.setOptions({ 
+        draggable: false,
+        scrollwheel: false,
+        gestureHandling: 'none'
+      });
+    }
   };
 
   // Handle movement end

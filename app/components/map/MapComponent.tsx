@@ -120,21 +120,27 @@ const MapComponent = ({ onAreaUpdate }: MapComponentProps) => {
       const newArea = calculations.calculateArea(state.currentField.points);
       const { totalDistance, lineMeasurements } = calculations.calculatePerimeter(state.currentField.points);
       
-      // Batch the state updates
-      const updatedField = {
-        ...state.currentField,
-        area: newArea,
-        perimeter: totalDistance,
-        measurements: lineMeasurements
-      };
-      
-      setters.setCurrentField(updatedField);
-      setters.setArea(newArea);
-      setters.setPerimeter(totalDistance);
-      setters.setMeasurements(lineMeasurements);
+      // Only update if values have changed
+      if (
+        newArea !== state.currentField.area ||
+        totalDistance !== state.currentField.perimeter ||
+        JSON.stringify(lineMeasurements) !== JSON.stringify(state.currentField.measurements)
+      ) {
+        const updatedField = {
+          ...state.currentField,
+          area: newArea,
+          perimeter: totalDistance,
+          measurements: lineMeasurements
+        };
+        
+        setters.setCurrentField(updatedField);
+        setters.setArea(newArea);
+        setters.setPerimeter(totalDistance);
+        setters.setMeasurements(lineMeasurements);
 
-      if (onAreaUpdate) {
-        onAreaUpdate(newArea);
+        if (onAreaUpdate) {
+          onAreaUpdate(newArea);
+        }
       }
     }
   }, [state.currentField?.points, calculations, onAreaUpdate]);
@@ -512,7 +518,17 @@ const MapComponent = ({ onAreaUpdate }: MapComponentProps) => {
                           if (!e.latLng) return;
                           handleMarkerDrag(e, index, field.id);
                         }}
-                        onDragEnd={() => setters.handleMovementEnd()}
+                        onDragEnd={(e) => {
+                          setters.handleMovementEnd();
+                          // Update the final position
+                          if (e.latLng) {
+                            const finalPoint = {
+                              lat: e.latLng.lat(),
+                              lng: e.latLng.lng()
+                            };
+                            setters.handleMarkerDrag(e, index, field.id);
+                          }
+                        }}
                         options={{
                           clickable: true,
                           draggable: true
@@ -529,12 +545,19 @@ const MapComponent = ({ onAreaUpdate }: MapComponentProps) => {
                         draggable={true}
                         icon={getSelectedMarkerIcon()}
                         onDragStart={(e) => handleMarkerDragStart(e, index, field.id)}
-                        onDragEnd={() => setters.handleMovementEnd()}
                         onDrag={(e) => {
                           if (!e.latLng) return;
-                          const selectedPoint = state.selectedPoint;
-                          if (typeof selectedPoint === 'number') {
-                            handleMarkerDrag(e, selectedPoint, field.id);
+                          handleMarkerDrag(e, index, field.id);
+                        }}
+                        onDragEnd={(e) => {
+                          setters.handleMovementEnd();
+                          // Update the final position
+                          if (e.latLng) {
+                            const finalPoint = {
+                              lat: e.latLng.lat(),
+                              lng: e.latLng.lng()
+                            };
+                            setters.handleMarkerDrag(e, index, field.id);
                           }
                         }}
                         options={{
@@ -552,7 +575,7 @@ const MapComponent = ({ onAreaUpdate }: MapComponentProps) => {
                         position={midpoint}
                         draggable={true}
                         icon={{
-                          path: window.google.maps.SymbolPath.CIRCLE,
+                          path: mapLoaded ? google.maps.SymbolPath.CIRCLE : 0,
                           scale: 6,
                           fillColor: state.hoveredPoint === `mid-${index}` ? '#FFFFFF' : '#FFA500',
                           fillOpacity: 1,
@@ -742,7 +765,7 @@ const MapComponent = ({ onAreaUpdate }: MapComponentProps) => {
                         position={midpoint}
                         draggable={true}
                         icon={{
-                          path: window.google.maps.SymbolPath.CIRCLE,
+                          path: mapLoaded ? google.maps.SymbolPath.CIRCLE : 0,
                           scale: 6,
                           fillColor: state.hoveredPoint === `mid-${index}` ? '#FFFFFF' : '#FFA500',
                           fillOpacity: 1,
